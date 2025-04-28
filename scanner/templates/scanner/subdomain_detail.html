@@ -1,0 +1,492 @@
+{% extends 'scanner/base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1>{{ subdomain.name }}</h1>
+            <p class="text-muted">Part of <a href="{% url 'asset-detail' subdomain.asset.id %}">{{ subdomain.asset.value }}</a></p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary toggle-favorite" 
+                    data-model="subdomain" 
+                    data-id="{{ subdomain.id }}">
+                <i class="bi {% if subdomain.favorite %}bi-star-fill{% else %}bi-star{% endif %}"></i>
+            </button>
+            <form method="post" action="{% url 'start-subdomain-scan' subdomain.id %}" class="d-inline" id="scanForm">
+                {% csrf_token %}
+                <div class="input-group d-inline-flex" style="width: auto;">
+                    <select name="module_id" class="form-select">
+                        {% for module in modules %}
+                            <option value="{{ module.id }}">{{ module.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-success">Run Scan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Nav tabs -->
+    <ul class="nav nav-tabs" id="subdomainTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+                Overview
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="findings-tab" data-bs-toggle="tab" data-bs-target="#findings" type="button" role="tab">
+                Findings
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="scans-tab" data-bs-toggle="tab" data-bs-target="#scans" type="button" role="tab">
+                Scans
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab content -->
+    <div class="tab-content mt-3">
+        <!-- Overview tab -->
+        <div class="tab-pane fade show active" id="overview" role="tabpanel">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5>Details</h5>
+                            <ul class="list-unstyled">
+                                <li><strong>Open Ports:</strong> 
+                                    {% if subdomain.ports.all %}
+                                        {% for port in subdomain.ports.all|dictsort:"port" %}
+                                            {{ port.port }}/{{ port.protocol }}{% if port.service %} ({{ port.service }}){% endif %}{% if not forloop.last %}, {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        None
+                                    {% endif %}
+                                </li>
+                                <li><strong>Last Scanned:</strong> {{ subdomain.last_scanned|default:"Never" }}</li>
+                                <li><strong>Created:</strong> {{ subdomain.created_at }}</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            {% if subdomain.screenshots.all %}
+                                <h5>Screenshots</h5>
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% for screenshot in subdomain.screenshots.all %}
+                                        <img src="data:image/png;base64,{{ screenshot.screenshot }}" 
+                                             class="img-thumbnail" 
+                                             style="max-height: 50px; cursor: pointer;"
+                                             data-bs-toggle="modal" 
+                                             data-bs-target="#screenshotModal{{ screenshot.id }}"
+                                             alt="Screenshot of {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol }})"
+                                             title="{{ screenshot.port.port }}/{{ screenshot.protocol }}">
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Recent Scans section -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Recent Scans</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Module</th>
+                                    <th>Status</th>
+                                    <th>Started</th>
+                                    <th>Completed</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for scan in scans|slice:":5" %}
+                                <tr>
+                                    <td>{{ scan.module.name }}</td>
+                                    <td>
+                                        <span class="badge {% if scan.status == 'completed' %}bg-success
+                                                          {% elif scan.status == 'running' %}bg-primary
+                                                          {% elif scan.status == 'failed' %}bg-danger
+                                                          {% elif scan.status == 'canceled' %}bg-warning
+                                                          {% else %}bg-secondary{% endif %}">
+                                            {{ scan.status|title }}
+                                        </span>
+                                        {% if scan.status == 'running' or scan.status == 'queued' %}
+                                            <form method="post" action="{% url 'cancel-scan' scan.id %}" class="d-inline ms-2 cancel-scan-form">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-danger cancel-button">
+                                                    Cancel
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ scan.started_at|date:"Y-m-d H:i:s" }}</td>
+                                    <td>{{ scan.completed_at|date:"Y-m-d H:i:s"|default:"-" }}</td>
+                                    <td>
+                                        {% if scan.output %}
+                                            <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#scanModal{{ scan.id }}">
+                                                View Details
+                                            </button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center">No scans performed yet.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% if scans.count > 5 %}
+                            <div class="text-end mt-2">
+                                <button class="btn btn-link" onclick="document.getElementById('scans-tab').click()">
+                                    View All Scans
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Findings tab -->
+        <div class="tab-pane fade" id="findings" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Title</th>
+                            <th>Severity</th>
+                            <th>Created</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for finding in findings %}
+                        <tr>
+                            <td>{{ finding.title }}</td>
+                            <td>
+                                <span class="badge {% if finding.severity == 'high' %}bg-danger
+                                                  {% elif finding.severity == 'medium' %}bg-warning text-dark
+                                                  {% elif finding.severity == 'low' %}bg-info text-dark
+                                                  {% else %}bg-secondary{% endif %}">
+                                    {{ finding.severity|title }}
+                                </span>
+                            </td>
+                            <td>{{ finding.created_at }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#findingModal{{ finding.id }}">
+                                    View Details
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center">No findings recorded yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Scans tab -->
+        <div class="tab-pane fade" id="scans" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Status</th>
+                            <th>Started</th>
+                            <th>Completed</th>
+                            <th>Output</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for scan in scans %}
+                        <tr>
+                            <td>{{ scan.module.name }}</td>
+                            <td>
+                                <span class="badge {% if scan.status == 'completed' %}bg-success
+                                                  {% elif scan.status == 'running' %}bg-primary
+                                                  {% elif scan.status == 'failed' %}bg-danger
+                                                  {% elif scan.status == 'canceled' %}bg-warning
+                                                  {% else %}bg-secondary{% endif %}">
+                                    {{ scan.status|title }}
+                                </span>
+                                {% if scan.status == 'running' or scan.status == 'queued' %}
+                                    <form method="post" action="{% url 'cancel-scan' scan.id %}" class="d-inline ms-2 cancel-scan-form">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-danger cancel-button">
+                                            Cancel
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                            <td>{{ scan.started_at|date:"Y-m-d H:i:s" }}</td>
+                            <td>{{ scan.completed_at|date:"Y-m-d H:i:s"|default:"-" }}</td>
+                            <td>
+                                {% if scan.output %}
+                                    <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#scanModal{{ scan.id }}">
+                                        View Details
+                                    </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center">No scans performed yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- All Modals -->
+{% for scan in scans %}
+    {% if scan.output %}
+    <!-- Scan Output Modal -->
+    <div class="modal fade" id="scanModal{{ scan.id }}" tabindex="-1" aria-labelledby="scanModalLabel{{ scan.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="scanModalLabel{{ scan.id }}">Scan Details - {{ scan.module.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <pre class="bg-light p-3"><code>{{ scan.output }}</code></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{% endfor %}
+
+{% for finding in findings %}
+<!-- Finding Details Modal -->
+<div class="modal fade" id="findingModal{{ finding.id }}" tabindex="-1" aria-labelledby="findingModalLabel{{ finding.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="findingModalLabel{{ finding.id }}">{{ finding.title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <h6>Details</h6>
+                    <div class="card">
+                        <div class="card-body">
+                            <pre class="bg-light p-3 mb-0" style="white-space: pre-wrap; word-wrap: break-word;"><code>{{ finding.description }}</code></pre>
+                        </div>
+                    </div>
+                </div>
+                {% if finding.scan %}
+                <div class="mb-3">
+                    <h6>Scan Information</h6>
+                    <ul class="list-unstyled">
+                        <li><strong>Module:</strong> {{ finding.scan.module.name }}</li>
+                        <li><strong>Started:</strong> {{ finding.scan.started_at|date:"Y-m-d H:i" }}</li>
+                        {% if finding.scan.output %}
+                        <li>
+                            <button class="btn btn-sm btn-info mt-2" 
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#scanOutputModal{{ finding.scan.id }}">
+                                View Scan Output
+                            </button>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if finding.scan and finding.scan.output %}
+<!-- Scan Output Modal -->
+<div class="modal fade" id="scanOutputModal{{ finding.scan.id }}" tabindex="-1" aria-labelledby="scanOutputModalLabel{{ finding.scan.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="scanOutputModalLabel{{ finding.scan.id }}">Scan Output - {{ finding.scan.module.name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre class="bg-light p-3 mb-0" style="white-space: pre-wrap; word-wrap: break-word;"><code>{{ finding.scan.output }}</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<!-- Screenshot Modals -->
+{% for screenshot in subdomain.screenshots.all %}
+<!-- Screenshot Modal -->
+<div class="modal fade" id="screenshotModal{{ screenshot.id }}" tabindex="-1" aria-labelledby="screenshotModalLabel{{ screenshot.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="screenshotModalLabel{{ screenshot.id }}">
+                    {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol|upper }})
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img src="data:image/png;base64,{{ screenshot.screenshot }}" 
+                     class="img-fluid" 
+                     alt="Screenshot of {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol }})">
+                <div class="mt-3">
+                    <p class="text-muted">
+                        Captured on {{ screenshot.created_at|date:"Y-m-d H:i" }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Update the script section -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Bootstrap tabs
+    var triggerTabList = [].slice.call(document.querySelectorAll('#subdomainTabs button'))
+    triggerTabList.forEach(function(triggerEl) {
+        new bootstrap.Tab(triggerEl)
+    });
+
+    // Initialize all modals
+    var modalTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="modal"]'))
+    modalTriggerList.forEach(function(triggerEl) {
+        var target = triggerEl.getAttribute('data-bs-target')
+        var modal = document.querySelector(target)
+        if (modal) {
+            // Create modal instance
+            var modalInstance = new bootstrap.Modal(modal, {
+                backdrop: true,
+                keyboard: true
+            })
+            
+            // Add click handler
+            triggerEl.addEventListener('click', function(e) {
+                e.preventDefault()
+                modalInstance.show()
+            })
+        }
+    });
+
+    // Handle scan form submission
+    document.getElementById('scanForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const form = this;
+        const submitButton = form.querySelector('button[type="submit"]');
+        
+        submitButton.disabled = true;
+        submitButton.innerHTML = 'Starting Scan...';
+
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: {
+                'X-CSRFToken': form.querySelector('[name="csrfmiddlewaretoken"]').value
+            },
+            redirect: 'follow'
+        })
+        .then(response => {
+            if (response.redirected) {
+                window.location.href = response.url;
+            } else {
+                window.location.reload();
+            }
+        })
+        .catch(error => {
+            alert('Error starting scan: ' + error.message);
+            submitButton.disabled = false;
+            submitButton.innerHTML = 'Run Scan';
+        });
+    });
+
+    // Add handler for cancel scan forms
+    document.querySelectorAll('.cancel-scan-form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (confirm('Are you sure you want to cancel this scan?')) {
+                const form = this;
+                const submitButton = form.querySelector('button[type="submit"]');
+                
+                submitButton.disabled = true;
+                submitButton.innerHTML = 'Canceling...';
+
+                fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: {
+                        'X-CSRFToken': form.querySelector('[name="csrfmiddlewaretoken"]').value
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        window.location.reload();
+                    } else {
+                        throw new Error('Failed to cancel scan');
+                    }
+                })
+                .catch(error => {
+                    alert('Error canceling scan: ' + error.message);
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = 'Cancel';
+                });
+            }
+        });
+    });
+
+    // Handle favorite toggle
+    document.querySelector('.toggle-favorite').addEventListener('click', function() {
+        const model = this.dataset.model;
+        const id = this.dataset.id;
+        const icon = this.querySelector('i');
+        
+        fetch(`/toggle-favorite/${model}/${id}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                icon.classList.toggle('bi-star');
+                icon.classList.toggle('bi-star-fill');
+            }
+        });
+    });
+});
+</script>
+
+<!-- Add this CSS to the head section or your stylesheet -->
+<style>
+    .table img {
+        transition: transform 0.2s;
+        cursor: pointer;
+    }
+    .table img:hover {
+        transform: scale(1.05);
+    }
+    .modal-xl {
+        max-width: 90%;
+    }
+</style>
+{% endblock %} 

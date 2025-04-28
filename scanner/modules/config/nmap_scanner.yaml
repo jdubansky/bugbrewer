@@ -1,0 +1,6 @@
+common_scripts: false
+host_timeout: 3000
+output_format: normal
+ports: 1-65535
+scan_type: -sS
+timing_template: 4

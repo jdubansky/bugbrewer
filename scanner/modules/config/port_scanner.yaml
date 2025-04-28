@@ -1,0 +1,3 @@
+ports: "80,443,8080"  # Default ports to scan
+timeout: 60           # Timeout in seconds
+threads: 10           # Number of concurrent threads 

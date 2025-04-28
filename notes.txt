@@ -1,0 +1,33 @@
+pkill -9 celery  # Stop existing Celery workers (Linux/macOS)
+redis-server &   # Start Redis
+source venv/bin/activate  # Activate virtual environment
+celery -A bugbrewer worker --loglevel=info  # Start Celery worker
+
+
+
+# Stop the server if it's running (Ctrl+C)
+pkill -9 celery  # Kill existing Celery workers (Linux/macOS)
+redis-server &   # Start Redis if needed
+source venv/bin/activate  # Activate virtual environment
+python manage.py makemigrations  # Apply migrations if needed
+python manage.py migrate
+python manage.py runserver  # Restart Django
+celery -A bugbrewer worker --loglevel=info  # Restart Celery
+
+docker compose up --build
+
+
+Requirements Changes
+If you modify requirements.txt
+Run docker compose up --build
+Environment Variable Changes
+If you modify environment variables in docker-compose.yml
+Run docker compose down and then docker compose up
+Dockerfile Changes
+If you modify the Dockerfile
+Run docker compose up --build
+Database Migrations
+After creating new migrations: docker compose exec web python3 manage.py migrate
+No need to restart containers
+
+

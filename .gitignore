@@ -1,0 +1,46 @@
+# Ignore SQLite database
+*.sqlite3
+db.sqlite3
+
+# Ignore scan output directory
+scanner/scan_outputs/
+
+# Ignore Django migrations cache
+**/migrations/__pycache__/
+
+# Ignore Python compiled files
+*.pyc
+__pycache__/
+
+# Ignore virtual environments
+venv/
+.env
+
+# Ignore IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore environment variables
+.env
+.env.local
+
+# Ignore log files
+*.log
+
+# Ignore coverage reports
+htmlcov/
+.coverage
+
+# Ignore local development settings
+local_settings.py
+
+# Ignore media files
+media/
+
+# Ignore static files
+staticfiles/
+
+# Ignore Celery beat schedule
+celerybeat-schedule

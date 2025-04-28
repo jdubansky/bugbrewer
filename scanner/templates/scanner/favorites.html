@@ -1,0 +1,156 @@
+{% extends 'scanner/base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Favorites</h1>
+    </div>
+
+    <!-- Nav tabs -->
+    <ul class="nav nav-tabs" id="favoritesTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="assets-tab" data-bs-toggle="tab" data-bs-target="#assets" type="button" role="tab">
+                Assets ({{ favorites.assets|length }})
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="subdomains-tab" data-bs-toggle="tab" data-bs-target="#subdomains" type="button" role="tab">
+                Subdomains ({{ favorites.subdomains|length }})
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab content -->
+    <div class="tab-content mt-3">
+        <!-- Assets tab -->
+        <div class="tab-pane fade show active" id="assets" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Type</th>
+                            <th>Ports</th>
+                            <th>Subdomains</th>
+                            <th>Findings</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for asset in favorites.assets %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'asset-detail' asset.id %}" class="text-decoration-none">
+                                    {{ asset.name }}
+                                </a>
+                            </td>
+                            <td>{{ asset.get_asset_type_display }}</td>
+                            <td>{{ asset.ports.count }}</td>
+                            <td>{{ asset.subdomains.count }}</td>
+                            <td>{{ asset.findings.count }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary toggle-favorite" 
+                                        data-model="asset" 
+                                        data-id="{{ asset.id }}">
+                                    <i class="bi bi-star-fill"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">No favorite assets yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Subdomains tab -->
+        <div class="tab-pane fade" id="subdomains" role="tabpanel">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Subdomain</th>
+                            <th>Asset</th>
+                            <th>Open Ports</th>
+                            <th>Findings</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for subdomain in favorites.subdomains %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'subdomain-detail' subdomain.id %}" class="text-decoration-none">
+                                    {{ subdomain.name }}
+                                </a>
+                            </td>
+                            <td>
+                                <a href="{% url 'asset-detail' subdomain.asset.id %}">
+                                    {{ subdomain.asset.name }}
+                                </a>
+                            </td>
+                            <td>{{ subdomain.ports.count }}</td>
+                            <td>{{ subdomain.finding_set.count }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary toggle-favorite" 
+                                        data-model="subdomain" 
+                                        data-id="{{ subdomain.id }}">
+                                    <i class="bi bi-star-fill"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center">No favorite subdomains yet.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle favorite toggle
+    document.querySelectorAll('.toggle-favorite').forEach(button => {
+        button.addEventListener('click', function() {
+            const model = this.dataset.model;
+            const id = this.dataset.id;
+            const icon = this.querySelector('i');
+            
+            fetch(`/scanner/toggle-favorite/${model}/${id}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Remove the row from the table
+                    this.closest('tr').remove();
+                    
+                    // Update the tab count
+                    const tab = document.querySelector(`#${model}s-tab`);
+                    const count = parseInt(tab.textContent.match(/\((\d+)\)/)[1]);
+                    tab.textContent = tab.textContent.replace(/\(\d+\)/, `(${count - 1})`);
+                    
+                    // If this was the last item, show the empty message
+                    const tbody = this.closest('tbody');
+                    if (tbody.querySelectorAll('tr:not(.empty-message)').length === 0) {
+                        const emptyRow = document.createElement('tr');
+                        emptyRow.innerHTML = `<td colspan="${model === 'asset' ? 6 : 5}" class="text-center">No favorite ${model}s yet.</td>`;
+                        tbody.appendChild(emptyRow);
+                    }
+                }
+            });
+        });
+    });
+});
+</script>
+{% endblock %} 

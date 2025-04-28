@@ -1,0 +1,66 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Edit Asset - {{ asset.value }}{% endblock %}
+
+{% block content %}
+    <h2>Asset Details - {{ asset.value }}</h2>
+
+    <div class="card">
+        <div class="card-header">
+            Asset Type: {{ asset.asset_type }}
+        </div>
+        <div class="card-body">
+            <h5>Open Ports ({{ asset.ports.count }})</h5>
+            {% if asset.ports.all %}
+                <ul>
+                    {% for port in asset.ports.all %}
+                        <li>Port {{ port.port }}/{{ port.protocol }} - {{ port.service|default:"Unknown" }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No open ports found.</p>
+            {% endif %}
+
+            <h5>Subdomains ({{ asset.subdomains.count }})</h5>
+            {% if asset.subdomains.all %}
+                <ul>
+                    {% for subdomain in asset.subdomains.all|slice:":5" %}  {# Show only first 5 initially #}
+                        <li>{{ subdomain.name }}</li>
+                    {% endfor %}
+                </ul>
+            
+                {% if asset.subdomains.count > 5 %}
+                    <button class="btn btn-link" data-bs-toggle="collapse" data-bs-target="#all-subdomains">
+                        See All
+                    </button>
+                    <div class="collapse" id="all-subdomains">
+                        <ul>
+                            {% for subdomain in asset.subdomains.all|slice:"5:" %}  {# Remaining subdomains #}
+                                <li>{{ subdomain.name }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+            {% else %}
+                <p>No subdomains found.</p>
+            {% endif %}
+
+            <h5>Findings ({{ asset.findings.count }})</h5>
+            {% if asset.findings.all %}
+                <ul>
+                    {% for finding in asset.findings.all %}
+                        <li><strong>{{ finding.title }}</strong>: {{ finding.description }} ({{ finding.severity }})</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No findings recorded.</p>
+            {% endif %}
+
+            
+
+
+        </div>
+    </div>
+
+    <a href="{% url 'index' %}" class="btn btn-secondary mt-3">Back to Assets</a>
+{% endblock %}

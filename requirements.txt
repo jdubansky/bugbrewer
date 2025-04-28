@@ -1,0 +1,11 @@
+Django
+celery==5.3.6
+redis==5.0.1
+django-redis==5.4.0
+djangorestframework
+django-widget-tweaks
+PyYAML==6.0.1
+selenium==4.16.0
+psycopg2-binary
+playwright==1.41.0
+scipy

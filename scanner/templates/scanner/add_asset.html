@@ -1,0 +1,17 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Add New Asset{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Add New Asset</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+            {{ form.as_p }}
+        </div>
+        <button type="submit" class="btn btn-primary">Add Asset</button>
+        <a href="{% url 'index' %}" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %} 

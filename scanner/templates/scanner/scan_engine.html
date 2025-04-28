@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Engine</title>
+</head>
+<body>
+    <h2>Scan Engine</h2>
+
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit">Run Scan</button>
+    </form>
+
+    {% if results %}
+        <h3>Scan Results</h3>
+        <table border="1">
+            <tr>
+                <th>Asset</th>
+                <th>Module</th>
+                <th>Output</th>
+            </tr>
+            {% for result in results %}
+            <tr>
+                <td>{{ result.asset }}</td>
+                <td>{{ result.module }}</td>
+                <td><pre>{{ result.output }}</pre></td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
+</body>
+</html>

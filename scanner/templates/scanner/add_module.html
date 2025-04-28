@@ -1,0 +1,136 @@
+{% extends 'scanner/base.html' %}
+{% load widget_tweaks %}
+
+{% block title %}{% if module %}Edit{% else %}Add{% endif %} Module{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2 class="mb-4">{% if module %}Edit{% else %}Add{% endif %} Scan Module</h2>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label for="id_name" class="form-label">Module Name:</label>
+                    {{ form.name|add_class:"form-control" }}
+                </div>
+                
+                <div class="mb-3">
+                    <label for="id_python_module" class="form-label">Python Module:</label>
+                    {{ form.python_module|add_class:"form-control" }}
+                    <div class="form-text">{{ form.python_module.help_text }}</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="id_yaml_file" class="form-label">Configuration Template:</label>
+                    {{ form.yaml_file|add_class:"form-control" }}
+                    <div class="form-text">{{ form.yaml_file.help_text }}</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="id_config_yaml" class="form-label">Module Configuration (YAML):</label>
+                    {{ form.config_yaml }}
+                    <div class="form-text">{{ form.config_yaml.help_text }}</div>
+                    {% if form.config_yaml.errors %}
+                        <div class="alert alert-danger">
+                            {{ form.config_yaml.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">{% if module %}Update{% else %}Add{% endif %} Module</button>
+                    <a href="{% url 'module-list' %}" class="btn btn-secondary">Back to Modules</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+<script>
+    console.log('test');
+document.addEventListener('DOMContentLoaded', function() {
+    const yamlFileSelect = document.getElementById('id_yaml_file');
+    const configTextarea = document.getElementById('id_config_yaml');
+    const pythonModuleSelect = document.getElementById('id_python_module');
+
+    console.log('DOM loaded, elements found:', {
+        yamlFileSelect: !!yamlFileSelect,
+        configTextarea: !!configTextarea,
+        pythonModuleSelect: !!pythonModuleSelect
+    });
+
+    // When Python module changes, update available YAML files
+    pythonModuleSelect.addEventListener('change', function() {
+        const moduleValue = this.value;
+        console.log('Python module changed to:', moduleValue);
+        
+        if (moduleValue) {
+            const yamlFile = moduleValue + '.yaml';
+            console.log('Setting YAML file to:', yamlFile);
+            yamlFileSelect.value = yamlFile;
+            loadYamlContent(yamlFile);
+        }
+    });
+
+    // When YAML file selection changes, load its content
+    yamlFileSelect.addEventListener('change', function() {
+        const selectedFile = this.value;
+        console.log('YAML file selection changed to:', selectedFile);
+        loadYamlContent(selectedFile);
+    });
+
+    function loadYamlContent(filename) {
+        if (!filename) {
+            console.log('No filename provided, clearing textarea');
+            configTextarea.value = '';
+            return;
+        }
+
+        console.log('Loading YAML content for:', filename);
+        configTextarea.value = 'Loading configuration...';
+
+        // Use the full URL path
+        const url = `${window.location.origin}/api/load-yaml-config/${filename}`;
+        console.log('Fetching from URL:', url);
+
+        fetch(url)
+            .then(response => {
+                console.log('Response received:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.text();
+            })
+            .then(content => {
+                console.log('Content received, length:', content.length);
+                configTextarea.value = content || '# No content found';
+            })
+            .catch(error => {
+                console.error('Error loading YAML:', error);
+                configTextarea.value = '# Error loading configuration\n# ' + error.message;
+            });
+    }
+
+    // Initial load if YAML file is pre-selected
+    if (yamlFileSelect.value) {
+        console.log('Initial YAML file found:', yamlFileSelect.value);
+        loadYamlContent(yamlFileSelect.value);
+    }
+});
+</script>
+
+<style>
+    #id_config_yaml {
+        font-family: monospace;
+        transition: background-color 0.2s;
+    }
+    #id_config_yaml.focused {
+        background-color: #f8f9fa;
+    }
+</style>
+
+{% endblock %}
+

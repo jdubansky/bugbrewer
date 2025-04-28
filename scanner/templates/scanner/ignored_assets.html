@@ -1,0 +1,109 @@
+{% extends 'scanner/base.html' %}
+{% load static %}
+
+{% block title %}Ignored Assets{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Ignored Assets</h1>
+        <a href="{% url 'index' %}" class="btn btn-secondary">Back to Assets</a>
+    </div>
+
+    <!-- Add Ignored Assets Form -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Add Assets to Ignore</h5>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    {{ form.assets.label_tag }}
+                    {{ form.assets }}
+                    {% if form.assets.help_text %}
+                        <small class="form-text text-muted">{{ form.assets.help_text }}</small>
+                    {% endif %}
+                    {% if form.assets.errors %}
+                        <div class="alert alert-danger">
+                            {{ form.assets.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+                <button type="submit" class="btn btn-primary">Add to Ignore List</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Ignored Assets List -->
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Currently Ignored Assets</h5>
+            {% if ignored_assets %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Asset</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for asset in ignored_assets %}
+                                <tr>
+                                    <td>{{ asset.name }}</td>
+                                    <td>{{ asset.get_asset_type_display }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger delete-ignored-asset" 
+                                                data-asset-id="{{ asset.id }}"
+                                                data-asset-name="{{ asset.name }}">
+                                            Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No assets are currently being ignored.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const deleteButtons = document.querySelectorAll('.delete-ignored-asset');
+    
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const assetId = this.dataset.assetId;
+            const assetName = this.dataset.assetName;
+            
+            if (confirm(`Are you sure you want to remove "${assetName}" from the ignore list?`)) {
+                fetch(`/ignored-assets/${assetId}/delete/`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Error deleting asset: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while deleting the asset.');
+                });
+            }
+        });
+    });
+});
+</script>
+{% endblock %}
+{% endblock %} 

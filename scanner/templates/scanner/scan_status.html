@@ -1,0 +1,26 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Scan Status{% endblock %}
+
+{% block content %}
+    <h2>Scan Status</h2>
+    {% for scan in scans %}
+        <div class="card mt-3">
+            <div class="card-header">
+                Scan for {{ scan.asset.value }} (Status: {{ scan.status }})
+            </div>
+            <div class="card-body">
+                <table class="table">
+                    <tr>
+                        <th>Module</th>
+                        <th>Status</th>
+                        <th>Started At</th>
+                        <th>Completed At</th>
+                        <th>Output</th>
+                        <th>Actions</th>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    {% endfor %}
+{% endblock %}
