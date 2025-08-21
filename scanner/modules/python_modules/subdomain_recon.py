@@ -4,10 +4,35 @@ from .shared_utils import take_screenshot, scan_ports
 import concurrent.futures
 import socket
 from urllib.parse import urlparse
+import psutil
+import time
+
+def check_system_resources():
+    """Check if system has enough resources to continue scanning"""
+    cpu_percent = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory()
+    memory_percent = memory.percent
+    
+    # Resource thresholds
+    MAX_CPU_PERCENT = 80
+    MAX_MEMORY_PERCENT = 80
+    
+    if cpu_percent > MAX_CPU_PERCENT:
+        time.sleep(5)  # Wait for CPU to cool down
+        return False
+    if memory_percent > MAX_MEMORY_PERCENT:
+        time.sleep(5)  # Wait for memory to free up
+        return False
+    
+    return True
 
 def process_subdomain(subdomain, asset, scan):
     """Process a single subdomain with port scanning and screenshots"""
     try:
+        # Check system resources before processing
+        if not check_system_resources():
+            return None
+
         # Resolve IP
         try:
             ip = socket.gethostbyname(subdomain.name)
@@ -15,8 +40,8 @@ def process_subdomain(subdomain, asset, scan):
             print(f"Could not resolve IP for {subdomain.name}")
             return None
 
-        # Scan ports
-        open_ports = scan_ports(ip)
+        # Scan ports with reduced concurrency
+        open_ports = scan_ports(ip, max_workers=5)  # Reduced from 10 to 5
         print(f"Found open ports for {subdomain.name}: {open_ports}")
         
         # Create a new subdomain object to avoid potential state issues
@@ -32,10 +57,19 @@ def process_subdomain(subdomain, asset, scan):
             )
             
             # Take screenshot if it's a web port
-            if port_number in [80, 443, 8080]:
+            if port_number in [80, 443, 8080, 8443]:
                 print(f"Taking screenshot of {subdomain.name}:{port_number}")
-                # Try both HTTP and HTTPS
-                for protocol in ['http', 'https']:
+                
+                # Determine which protocols to try based on port number
+                protocols_to_try = []
+                if port_number in [80, 8080]:
+                    protocols_to_try = ['http']
+                elif port_number in [443, 8443]:
+                    protocols_to_try = ['https']
+                else:
+                    protocols_to_try = ['http', 'https']
+                
+                for protocol in protocols_to_try:
                     try:
                         screenshot = take_screenshot(subdomain.name)
                         if screenshot:
@@ -46,6 +80,8 @@ def process_subdomain(subdomain, asset, scan):
                                 screenshot=screenshot,
                                 protocol=protocol
                             )
+                            # If we got a successful screenshot, no need to try other protocols for this port
+                            break
                     except Exception as e:
                         print(f"Failed to capture screenshot for {subdomain.name}:{port_number} ({protocol}): {str(e)}")
         
@@ -82,35 +118,21 @@ def process_subdomain(subdomain, asset, scan):
 
 def run(scan):
     print("=====================================")
-    print("Starting Subdomain Reconnaissance")
+    print("Starting Subdomain Recon Scanner")
     
     asset = scan.asset
+    subdomains = asset.domain_subdomains.all()
+    total_subdomains = subdomains.count()
+    processed_count = 0
+    error_count = 0
     
     # Update scan status
     scan.status = "running"
     scan.save()
     
     try:
-        # First, try to find subdomains using the subdomain scanner
-        from .subdomain_scanner import run as run_subdomain_scanner
-        subdomain_output = run_subdomain_scanner(scan)
-        
-        # Now get the subdomains using the correct related name
-        subdomains = asset.domain_subdomains.all()
-        if not subdomains.exists():
-            scan.status = "failed"
-            scan.output = "No subdomains found to analyze"
-            scan.save()
-            return "No subdomains found"
-            
-        processed_count = 0
-        error_count = 0
-        total_subdomains = subdomains.count()
-        
-        print(f"Found {total_subdomains} subdomains to process")
-        
-        # Process subdomains concurrently
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        # Process subdomains with reduced concurrency
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:  # Reduced from 5 to 3
             future_to_subdomain = {
                 executor.submit(process_subdomain, subdomain, asset, scan): subdomain 
                 for subdomain in subdomains

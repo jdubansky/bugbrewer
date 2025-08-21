@@ -1,8 +1,8 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from rest_framework import viewsets
-from .models import Asset, Scan, Module, Finding, Subdomain, ScanQueue, IgnoredAsset
+from .models import Asset, Scan, Module, Finding, Subdomain, ScanQueue, IgnoredAsset, ContinuousScan
 from .serializers import AssetSerializer, ScanSerializer
-from .forms import BulkAssetForm, ModuleForm, AssetForm, ScanForm, IgnoredAssetForm, BulkIgnoredAssetForm
+from .forms import BulkAssetForm, ModuleForm, AssetForm, ScanForm, IgnoredAssetForm, BulkIgnoredAssetForm, ContinuousScanForm
 from .tasks import run_scan
 from django.utils.timezone import now
 from celery import current_app
@@ -12,7 +12,7 @@ from pathlib import Path
 from django.contrib import messages
 from celery.app.control import Inspect
 from django.db.models import Count, Q
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.utils import timezone
@@ -22,6 +22,7 @@ import logging
 import yaml
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ def index_view(request):
     search_query = request.GET.get('q', '')
     favorite = request.GET.get('favorite', '')
     
-    # Start with all assets
-    assets = Asset.objects.all()
+    # Start with all assets, ordered by name
+    assets = Asset.objects.all().order_by('name')
     
     # Apply filters
     if asset_type:
@@ -64,8 +65,8 @@ def index_view(request):
     for module in available_modules:
         print(f"DEBUG: Available module: {module.name} (enabled: {module.enabled})")
     
-    # Pagination with 50 items per page
-    paginator = Paginator(assets, 200)
+    # Pagination with 200 items per page
+    paginator = Paginator(assets, 250)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
@@ -160,27 +161,36 @@ def scan_engine_view(request):
 
     return render(request, 'scanner/scan_engine.html')
 
+@require_POST
 def cancel_scan_view(request, scan_id):
-    if request.method == 'POST':
-        try:
-            scan = get_object_or_404(Scan, id=scan_id)
-            
-            # Revoke the Celery task if it exists
-            if scan.task_id:
-                current_app.control.revoke(scan.task_id, terminate=True)
-            
-            # Update scan status
-            scan.status = 'canceled'
-            scan.completed_at = now()
-            scan.save()
-            
-            # Return JSON response for AJAX request
-            return JsonResponse({'status': 'success', 'message': 'Scan canceled successfully'})
-            
-        except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
-    
-    return JsonResponse({'status': 'error', 'message': 'Invalid request method'}, status=400)
+    try:
+        scan = get_object_or_404(Scan, id=scan_id)
+        
+        if scan.status not in ['running', 'queued']:
+            return JsonResponse({
+                'status': 'error', 
+                'message': f'Scan is not in a running or queued state (current status: {scan.status})'
+            }, status=400)
+        
+        # Revoke the Celery task if it exists
+        if scan.task_id:
+            try:
+                app = current_app._get_current_object()
+                app.control.revoke(scan.task_id, terminate=True)
+            except Exception as e:
+                logger.error(f"Error revoking task {scan.task_id}: {e}")
+        
+        # Update scan status
+        scan.status = 'canceled'
+        scan.completed_at = timezone.now()
+        scan.output = 'Scan was manually canceled'
+        scan.save()
+        
+        return JsonResponse({'status': 'success', 'message': 'Scan canceled successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error canceling scan {scan_id}: {e}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 def module_list_view(request):
     modules = Module.objects.all()
@@ -284,6 +294,29 @@ def scan_single_asset_view(request, asset_id):
 
     return redirect('scan-status')
 
+def check_system_resources():
+    """Check if system has enough resources to run a new scan"""
+    cpu_percent = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory()
+    memory_percent = memory.percent
+    
+    # Get number of running scans
+    running_scans = Scan.objects.filter(status='running').count()
+    
+    # Resource thresholds
+    MAX_CPU_PERCENT = 80
+    MAX_MEMORY_PERCENT = 80
+    MAX_CONCURRENT_SCANS = 3
+    
+    if cpu_percent > MAX_CPU_PERCENT:
+        return False, f"CPU usage too high ({cpu_percent}%)"
+    if memory_percent > MAX_MEMORY_PERCENT:
+        return False, f"Memory usage too high ({memory_percent}%)"
+    if running_scans >= MAX_CONCURRENT_SCANS:
+        return False, f"Too many concurrent scans running ({running_scans})"
+    
+    return True, "System resources available"
+
 def start_scan_view(request, asset_id):
     asset = get_object_or_404(Asset, id=asset_id)
     
@@ -293,6 +326,12 @@ def start_scan_view(request, asset_id):
             # Check if the asset is ignored
             if asset.is_ignored():
                 messages.warning(request, f"Asset {asset.name} is in the ignore list and will not be scanned.")
+                return redirect('asset-detail', asset_id=asset.id)
+            
+            # Check system resources
+            can_run, reason = check_system_resources()
+            if not can_run:
+                messages.warning(request, f"Cannot start scan: {reason}")
                 return redirect('asset-detail', asset_id=asset.id)
             
             module = form.cleaned_data['module']
@@ -325,17 +364,6 @@ def start_scan_view(request, asset_id):
             return redirect('asset-detail', asset_id=asset.id)
     else:
         return redirect('asset-detail', asset_id=asset.id)
-
-def cancel_scan(request, scan_id):
-    scan = get_object_or_404(Scan, id=scan_id)
-    if request.method == 'POST':
-        scan.status = 'canceled'
-        scan.completed_at = timezone.now()
-        scan.save()
-        messages.success(request, 'Scan canceled successfully!')
-        return redirect('scan-status')
-    
-    return render(request, 'scanner/cancel_scan.html', {'scan': scan})
 
 def scan_output(request, scan_id):
     scan = get_object_or_404(Scan, id=scan_id)
@@ -481,58 +509,61 @@ def add_asset(request):
 def asset_detail(request, asset_id):
     asset = get_object_or_404(Asset, id=asset_id)
     
-    # Get subdomains if this is a domain
-    subdomains = asset.get_subdomains() if asset.asset_type == 'domain' else None
+    # Get all subdomains for this asset
+    subdomains = asset.domain_subdomains.all()
     
-    # Get findings
-    findings = asset.get_findings()
+    # Get all findings for this asset
+    findings = asset.finding_set.all()
     
     # Get scan history
-    scans = asset.get_scan_history()
+    scan_history = Scan.objects.filter(asset=asset).order_by('-started_at')
     
     # Get latest scan
-    latest_scan = asset.get_latest_scan()
+    latest_scan = scan_history.first()
     
-    # Check available modules
-    available_modules = Module.objects.filter(enabled=True)
-    print(f"DEBUG: Found {available_modules.count()} enabled modules for asset {asset.name}")
-    for module in available_modules:
-        print(f"DEBUG: Available module: {module.name} (enabled: {module.enabled})")
+    # Get available modules
+    modules = Module.objects.all()
     
     # Get scan statistics
     scan_stats = {
-        'count': asset.get_scan_count(),
-        'success_rate': asset.get_scan_success_rate(),
-        'failure_rate': asset.get_scan_failure_rate(),
-        'cancel_rate': asset.get_scan_cancel_rate(),
-        'average_duration': asset.get_scan_average_duration(),
-        'coverage': asset.get_scan_coverage(),
-        'effectiveness': asset.get_scan_effectiveness(),
-        'overall_score': asset.get_overall_scan_score()
+        'total': scan_history.count(),
+        'completed': scan_history.filter(status='completed').count(),
+        'running': scan_history.filter(status='running').count(),
+        'failed': scan_history.filter(status='failed').count()
     }
+    
+    # Get endpoints
+    endpoints = asset.endpoints.all().order_by('-discovered_at')
+    
+    # Create scan form
+    scan_form = ScanForm()
     
     context = {
         'asset': asset,
         'subdomains': subdomains,
         'findings': findings,
-        'scans': scans,
+        'scan_history': scan_history,
         'latest_scan': latest_scan,
+        'modules': modules,
         'scan_stats': scan_stats,
-        'scan_form': ScanForm()  # Add scan form to context
+        'scan_form': scan_form,
+        'endpoints': endpoints
     }
+    
     return render(request, 'scanner/asset_detail.html', context)
 
 class SubdomainDetailView(DetailView):
     model = Subdomain
     template_name = 'scanner/subdomain_detail.html'
     context_object_name = 'subdomain'
-
+    
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        subdomain = self.object
+        subdomain = self.get_object()
+        context['modules'] = Module.objects.all()
+        context['endpoints'] = subdomain.endpoints.all().order_by('-discovered_at')
         context['scans'] = Scan.objects.filter(subdomain=subdomain).order_by('-started_at')[:10]
         context['findings'] = Finding.objects.filter(subdomain=subdomain).order_by('-created_at')
-        context['modules'] = Module.objects.all()
         return context
 
 def start_subdomain_scan(request, subdomain_id):
@@ -592,3 +623,126 @@ def delete_ignored_asset(request, asset_id):
         return JsonResponse({'success': True})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=400)
+
+def continuous_scan_list(request):
+    """View to list all continuous scans"""
+    continuous_scans = ContinuousScan.objects.all()
+    return render(request, 'scanner/continuous_scan_list.html', {
+        'continuous_scans': continuous_scans
+    })
+
+def continuous_scan_detail(request, scan_id):
+    """View to show details of a continuous scan"""
+    continuous_scan = get_object_or_404(ContinuousScan, id=scan_id)
+    scan_history = continuous_scan.get_scan_history()[:10]  # Get last 10 scans
+    scan_stats = continuous_scan.get_scan_stats()
+    
+    return render(request, 'scanner/continuous_scan_detail.html', {
+        'continuous_scan': continuous_scan,
+        'scan_history': scan_history,
+        'scan_stats': scan_stats
+    })
+
+def continuous_scan_create(request):
+    if request.method == 'POST':
+        form = ContinuousScanForm(request.POST)
+        if form.is_valid():
+            continuous_scan = form.save(commit=False)
+            continuous_scan.save()
+            form.save_m2m()  # Save the many-to-many relationships (modules)
+            
+            messages.success(request, 'Continuous scan created successfully.')
+            return redirect('continuous-scan-detail', continuous_scan.id)
+    else:
+        form = ContinuousScanForm()
+    
+    return render(request, 'scanner/continuous_scan_form.html', {
+        'form': form,
+        'title': 'Create Continuous Scan'
+    })
+
+def continuous_scan_edit(request, scan_id):
+    """View to edit an existing continuous scan"""
+    continuous_scan = get_object_or_404(ContinuousScan, id=scan_id)
+    
+    if request.method == 'POST':
+        form = ContinuousScanForm(request.POST, instance=continuous_scan)
+        if form.is_valid():
+            continuous_scan = form.save()
+            messages.success(request, f'Continuous scan {continuous_scan.name} updated successfully!')
+            return redirect('continuous-scan-detail', scan_id=continuous_scan.id)
+    else:
+        form = ContinuousScanForm(instance=continuous_scan)
+    
+    return render(request, 'scanner/continuous_scan_form.html', {
+        'form': form,
+        'title': 'Edit Continuous Scan',
+        'continuous_scan': continuous_scan
+    })
+
+@require_http_methods(["POST"])
+def continuous_scan_start(request, scan_id):
+    continuous_scan = get_object_or_404(ContinuousScan, id=scan_id)
+    
+    if continuous_scan.start():
+        # Create and run initial scans for each asset-module combination
+        for asset in Asset.objects.all():
+            for module in continuous_scan.modules.all():
+                # Check if a scan for this asset-module combination already exists
+                existing_scan = Scan.objects.filter(
+                    asset=asset,
+                    module=module,
+                    status__in=['running', 'queued']
+                ).first()
+                
+                if not existing_scan:
+                    scan = Scan.objects.create(
+                        asset=asset,
+                        module=module,
+                        status='queued'
+                    )
+                    run_scan.delay(scan.id)
+                    print(f"Created and queued scan for {asset.name} with {module.name}")
+        
+        messages.success(request, f"Continuous scan '{continuous_scan.name}' started successfully.")
+    else:
+        messages.warning(request, f"Continuous scan '{continuous_scan.name}' is already running or cannot be started.")
+    
+    return redirect('continuous-scan-detail', scan_id=scan_id)
+
+@require_POST
+def continuous_scan_pause(request, scan_id):
+    """View to pause a continuous scan"""
+    continuous_scan = get_object_or_404(ContinuousScan, id=scan_id)
+    continuous_scan.pause()
+    messages.success(request, f'Continuous scan {continuous_scan.name} paused successfully!')
+    return redirect('continuous-scan-detail', scan_id=scan_id)
+
+@require_POST
+def continuous_scan_stop(request, scan_id):
+    """View to stop a continuous scan"""
+    continuous_scan = get_object_or_404(ContinuousScan, id=scan_id)
+    
+    if continuous_scan.stop():
+        # Cancel any running or queued scans for this continuous scan
+        running_scans = Scan.objects.filter(
+            module__in=continuous_scan.modules.all(),
+            status__in=['running', 'queued']
+        )
+        
+        for scan in running_scans:
+            if scan.task_id:
+                try:
+                    from celery.task.control import revoke
+                    revoke(scan.task_id, terminate=True)
+                except Exception as e:
+                    print(f"Error revoking task {scan.task_id}: {e}")
+            scan.status = 'canceled'
+            scan.completed_at = timezone.now()
+            scan.save()
+        
+        messages.success(request, f'Continuous scan {continuous_scan.name} stopped successfully!')
+    else:
+        messages.warning(request, f'Continuous scan {continuous_scan.name} is already stopped.')
+    
+    return redirect('continuous-scan-detail', scan_id=scan_id)

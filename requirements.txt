@@ -9,3 +9,7 @@ selenium==4.16.0
 psycopg2-binary
 playwright==1.41.0
 scipy
+requests==2.31.0
+aiohttp==3.9.3
+dnspython==2.5.0
+psutil==5.9.8

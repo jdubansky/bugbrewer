@@ -1,5 +1,5 @@
 from django.db import models
-from django.utils.timezone import now
+from django.utils import timezone
 from pathlib import Path
 import yaml
 from django.contrib.postgres.fields import ArrayField
@@ -7,6 +7,13 @@ from django.urls import reverse
 import math
 from scipy import stats
 from .utils import get_python_modules
+from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator, MaxValueValidator
+import re
+import ipaddress
+from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
+from django.db.models import Avg, F
 
 class Tag(models.Model):
     name = models.CharField(max_length=50, unique=True)
@@ -777,3 +784,167 @@ class IgnoredAsset(models.Model):
             'subdomains': IgnoredAsset.objects.filter(asset_type='subdomain'),
             'ips': IgnoredAsset.objects.filter(asset_type='ip')
         }
+
+class Endpoint(models.Model):
+    """Model for storing discovered endpoints (URLs, paths, etc.)"""
+    asset = models.ForeignKey('Asset', on_delete=models.CASCADE, related_name='endpoints', null=True, blank=True)
+    subdomain = models.ForeignKey('Subdomain', on_delete=models.CASCADE, related_name='endpoints', null=True, blank=True)
+    path = models.CharField(max_length=2048)  # The endpoint path (e.g., "/index.php", "/.git")
+    method = models.CharField(max_length=10, choices=[
+        ('GET', 'GET'),
+        ('POST', 'POST'),
+        ('PUT', 'PUT'),
+        ('DELETE', 'DELETE'),
+        ('HEAD', 'HEAD'),
+        ('OPTIONS', 'OPTIONS'),
+        ('PATCH', 'PATCH')
+    ], default='GET')
+    status_code = models.IntegerField(null=True, blank=True)
+    content_length = models.IntegerField(null=True, blank=True)
+    content_type = models.CharField(max_length=255, null=True, blank=True)
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+    is_interesting = models.BooleanField(default=False)  # Mark interesting endpoints (e.g., admin panels, API endpoints)
+    notes = models.TextField(blank=True)
+    tags = models.ManyToManyField('Tag', blank=True)
+    findings = models.ManyToManyField('Finding', related_name='endpoints', blank=True)
+    scans = models.ManyToManyField('Scan', related_name='endpoints', blank=True)
+
+    class Meta:
+        unique_together = [
+            ('asset', 'path', 'method'),
+            ('subdomain', 'path', 'method')
+        ]
+        indexes = [
+            models.Index(fields=['path']),
+            models.Index(fields=['status_code']),
+            models.Index(fields=['is_interesting']),
+            models.Index(fields=['discovered_at']),
+        ]
+        ordering = ['-discovered_at']
+
+    def __str__(self):
+        if self.subdomain:
+            return f"{self.subdomain.name}{self.path}"
+        return f"{self.asset.name}{self.path}"
+
+    def get_absolute_url(self):
+        if self.subdomain:
+            return f"http{'s' if self.subdomain.ports.filter(port=443).exists() else ''}://{self.subdomain.name}{self.path}"
+        return f"http{'s' if self.asset.ports.filter(port=443).exists() else ''}://{self.asset.name}{self.path}"
+
+    def get_findings(self):
+        return self.findings.all()
+
+    def get_scan_history(self):
+        return self.scans.all().order_by('-started_at')
+
+    def get_latest_scan(self):
+        return self.get_scan_history().first()
+
+    def get_open_findings(self):
+        return self.get_findings().filter(status='open')
+
+    def get_closed_findings(self):
+        return self.get_findings().filter(status='closed')
+
+    def get_finding_count(self):
+        return self.get_findings().count()
+
+    def get_open_finding_count(self):
+        return self.get_open_findings().count()
+
+    def get_closed_finding_count(self):
+        return self.get_closed_findings().count()
+
+    def get_scan_count(self):
+        return self.get_scan_history().count()
+
+    def get_last_scan_time(self):
+        last_scan = self.get_latest_scan()
+        return last_scan.started_at if last_scan else None
+
+    def get_scan_status(self):
+        last_scan = self.get_latest_scan()
+        return last_scan.status if last_scan else 'never_scanned'
+
+    def get_scan_duration(self):
+        last_scan = self.get_latest_scan()
+        if last_scan and last_scan.completed_at:
+            return last_scan.completed_at - last_scan.started_at
+        return None
+
+class ContinuousScan(models.Model):
+    STATUS_CHOICES = [
+        ('stopped', 'Stopped'),
+        ('running', 'Running'),
+        ('paused', 'Paused'),
+    ]
+
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    scan_interval = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(24)])
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='stopped')
+    last_scan = models.DateTimeField(null=True, blank=True)
+    next_scan = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    modules = models.ManyToManyField(Module)
+
+    def start(self):
+        if self.status == 'stopped':
+            self.status = 'running'
+            self.next_scan = timezone.now()
+            self.save()
+            return True
+        return False
+
+    def pause(self):
+        if self.status == 'running':
+            self.status = 'paused'
+            self.next_scan = None
+            self.save()
+            return True
+        return False
+
+    def stop(self):
+        if self.status in ['running', 'paused']:
+            self.status = 'stopped'
+            self.next_scan = None
+            self.save()
+            return True
+        return False
+
+    def update_next_scan(self):
+        if self.status == 'running':
+            self.last_scan = timezone.now()
+            self.next_scan = timezone.now() + timezone.timedelta(hours=self.scan_interval)
+            self.save()
+
+    def is_due(self):
+        if self.status != 'running':
+            return False
+        if not self.next_scan:
+            return True
+        return timezone.now() >= self.next_scan
+
+    def get_scan_history(self):
+        """Get the scan history for this continuous scan"""
+        return Scan.objects.filter(
+            module__in=self.modules.all()
+        ).order_by('-started_at')
+
+    def get_scan_stats(self):
+        """Get statistics about the continuous scan"""
+        scans = self.get_scan_history()
+        return {
+            'total': scans.count(),
+            'completed': scans.filter(status='completed').count(),
+            'failed': scans.filter(status='failed').count(),
+            'avg_duration': scans.filter(completed_at__isnull=False).aggregate(
+                avg=Avg(F('completed_at') - F('started_at'))
+            )['avg']
+        }
+
+    def __str__(self):
+        return self.name

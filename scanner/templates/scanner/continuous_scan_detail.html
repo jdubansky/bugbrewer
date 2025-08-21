@@ -1,0 +1,162 @@
+{% extends "scanner/base.html" %}
+
+{% block title %}{{ continuous_scan.name }} - Continuous Scan{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>{{ continuous_scan.name }}</h1>
+        <div class="d-flex gap-2">
+            {% if continuous_scan.status == 'stopped' %}
+                <form method="post" action="{% url 'continuous-scan-start' continuous_scan.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-success">Start Scan</button>
+                </form>
+            {% elif continuous_scan.status == 'running' %}
+                <form method="post" action="{% url 'continuous-scan-pause' continuous_scan.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning">Pause Scan</button>
+                </form>
+                <form method="post" action="{% url 'continuous-scan-stop' continuous_scan.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Stop Scan</button>
+                </form>
+            {% elif continuous_scan.status == 'paused' %}
+                <form method="post" action="{% url 'continuous-scan-start' continuous_scan.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-success">Resume Scan</button>
+                </form>
+                <form method="post" action="{% url 'continuous-scan-stop' continuous_scan.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Stop Scan</button>
+                </form>
+            {% endif %}
+            <a href="{% url 'continuous-scan-edit' continuous_scan.id %}" class="btn btn-primary">Edit</a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Scan Information</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled">
+                        <li><strong>Status:</strong> 
+                            <span class="badge {% if continuous_scan.status == 'running' %}bg-success
+                                            {% elif continuous_scan.status == 'paused' %}bg-warning
+                                            {% else %}bg-danger{% endif %}">
+                                {{ continuous_scan.status|title }}
+                            </span>
+                        </li>
+                        <li><strong>Description:</strong> {{ continuous_scan.description }}</li>
+                        <li><strong>Scan Interval:</strong> {{ continuous_scan.scan_interval }} hours</li>
+                        <li><strong>Last Scan:</strong> {{ continuous_scan.last_scan|default:"Never" }}</li>
+                        <li><strong>Next Scan:</strong> {{ continuous_scan.next_scan|default:"Not scheduled" }}</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Scan Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled">
+                        <li><strong>Total Scans:</strong> {{ scan_stats.total }}</li>
+                        <li><strong>Successful Scans:</strong> {{ scan_stats.completed }}</li>
+                        <li><strong>Failed Scans:</strong> {{ scan_stats.failed }}</li>
+                        <li><strong>Average Duration:</strong> {{ scan_stats.avg_duration|default:"N/A" }}</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Selected Modules</h5>
+                </div>
+                <div class="card-body">
+                    {% if continuous_scan.modules.all %}
+                        <ul class="list-unstyled">
+                            {% for module in continuous_scan.modules.all %}
+                                <li>{{ module.name }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">No modules selected</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Selected Assets</h5>
+                </div>
+                <div class="card-body">
+                    {% if continuous_scan.assets.all %}
+                        <ul class="list-unstyled">
+                            {% for asset in continuous_scan.assets.all %}
+                                <li><a href="{% url 'asset-detail' asset.id %}">{{ asset.name }}</a></li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted">No assets selected</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Recent Scan History</h5>
+        </div>
+        <div class="card-body">
+            {% if scan_history %}
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Start Time</th>
+                                <th>End Time</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Findings</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for scan in scan_history %}
+                                <tr>
+                                    <td>{{ scan.started_at|date:"Y-m-d H:i" }}</td>
+                                    <td>{{ scan.end_time|default:"-" }}</td>
+                                    <td>
+                                        <span class="badge {% if scan.status == 'completed' %}bg-success
+                                                        {% elif scan.status == 'failed' %}bg-danger
+                                                        {% elif scan.status == 'running' %}bg-warning
+                                                        {% else %}bg-secondary{% endif %}">
+                                            {{ scan.status|title }}
+                                        </span>
+                                    </td>
+                                    <td>{{ scan.duration|default:"-" }}</td>
+                                    <td>{{ scan.findings_count }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted">No scan history available</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 

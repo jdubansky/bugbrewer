@@ -1,5 +1,5 @@
 from django import forms
-from .models import Asset, Module, Tag, IgnoredAsset
+from .models import Asset, Module, Tag, IgnoredAsset, ContinuousScan
 from django.shortcuts import render, redirect
 from .models import Module
 import os
@@ -56,11 +56,16 @@ class BulkAssetForm(forms.Form):
         # Remove any remaining path or query parameters
         domain = domain.split('/')[0]
         
-        return domain.strip()
+        # Convert to lowercase and remove any whitespace
+        domain = domain.lower().strip()
+        
+        return domain
 
     def clean_assets(self):
         assets_text = self.cleaned_data['assets']
         asset_list = [line.strip() for line in assets_text.splitlines() if line.strip()]
+        
+        print(f"DEBUG: Input assets: {asset_list}")
         
         if not asset_list:
             raise forms.ValidationError("Please enter at least one domain or IP.")
@@ -71,8 +76,10 @@ class BulkAssetForm(forms.Form):
         subdomains = {}  # Track subdomains for each domain
         
         for value in asset_list:
+            print(f"DEBUG: Processing value: {value}")
             # Check if it's an IP address (simple check)
             if value.replace('.', '').isdigit():
+                print(f"DEBUG: Found IP address: {value}")
                 asset_type = "ip"
                 cleaned_value = value
                 cleaned_assets.append({
@@ -82,18 +89,42 @@ class BulkAssetForm(forms.Form):
             else:
                 # Clean the domain
                 cleaned_value = self.clean_domain(value)
+                print(f"DEBUG: Cleaned domain: {cleaned_value}")
                 
-                # Check if it's a subdomain (has more than one dot)
+                # Split into parts and validate
                 parts = cleaned_value.split('.')
-                if len(parts) > 2:
-                    # It's a subdomain
-                    domain = '.'.join(parts[-2:])  # Get the TLD domain
-                    subdomain = cleaned_value
-                    domains.add(domain)
-                    if domain not in subdomains:
-                        subdomains[domain] = []
-                    subdomains[domain].append(subdomain)
+                print(f"DEBUG: Domain parts: {parts}")
+                
+                # Skip if it's just a TLD or ccTLD
+                if len(parts) < 2:
+                    print(f"DEBUG: Skipping - too few parts")
+                    continue
+                
+                # Skip if it's just a TLD or ccTLD without a domain name
+                if len(parts) == 2 and parts[0] in ['com', 'org', 'net', 'edu', 'gov', 'mil'] and len(parts[-1]) <= 3:
+                    print(f"DEBUG: Skipping - appears to be just a TLD/ccTLD")
+                    continue
+                
+                # For domains with ccTLDs, use the full domain as the main domain
+                if len(parts) == 3 and parts[-2] in ['com', 'edu', 'org', 'net', 'gov', 'mil'] and len(parts[-1]) <= 3:
+                    main_domain = cleaned_value
                 else:
+                    # For regular domains, use the last two parts
+                    main_domain = '.'.join(parts[-2:])
+                
+                print(f"DEBUG: Main domain: {main_domain}")
+                
+                # Check if it's a subdomain (has more than two parts)
+                if len(parts) > 2:
+                    print(f"DEBUG: Processing as subdomain")
+                    # It's a subdomain
+                    subdomain = cleaned_value
+                    domains.add(main_domain)
+                    if main_domain not in subdomains:
+                        subdomains[main_domain] = []
+                    subdomains[main_domain].append(subdomain)
+                else:
+                    print(f"DEBUG: Processing as domain")
                     # It's a domain
                     domains.add(cleaned_value)
                     cleaned_assets.append({
@@ -101,8 +132,15 @@ class BulkAssetForm(forms.Form):
                         "value": cleaned_value
                     })
 
+        print(f"DEBUG: Found domains: {domains}")
+        print(f"DEBUG: Found subdomains: {subdomains}")
+        
         # Add domains first
         for domain in domains:
+            # Skip if the domain is just a TLD or ccTLD
+            parts = domain.split('.')
+            if len(parts) == 2 and parts[0] in ['com', 'org', 'net', 'edu', 'gov', 'mil'] and len(parts[-1]) <= 3:
+                continue
             cleaned_assets.append({
                 "asset_type": "domain",
                 "value": domain
@@ -117,6 +155,7 @@ class BulkAssetForm(forms.Form):
                     "parent": domain
                 })
 
+        print(f"DEBUG: Final cleaned assets: {cleaned_assets}")
         return cleaned_assets
 
 class AssetForm(forms.ModelForm):
@@ -284,3 +323,17 @@ class BulkIgnoredAssetForm(forms.Form):
         if not re.match(r'^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*$', value):
             raise forms.ValidationError(f"Invalid domain format: {value}")
         return value
+
+class ContinuousScanForm(forms.ModelForm):
+    class Meta:
+        model = ContinuousScan
+        fields = ['name', 'description', 'scan_interval', 'modules']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'modules': forms.CheckboxSelectMultiple(attrs={'class': 'form-check-input'}),
+            'scan_interval': forms.NumberInput(attrs={'class': 'form-control', 'min': 1, 'max': 24}),
+        }
+        help_texts = {
+            'scan_interval': 'Number of hours between scans (1-24)',
+        }

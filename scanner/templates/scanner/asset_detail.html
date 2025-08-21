@@ -1,4 +1,5 @@
 {% extends 'scanner/base.html' %}
+{% load scanner_extras %}
 
 {% block content %}
 <div class="container mt-4">
@@ -40,6 +41,11 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="findings-tab" data-bs-toggle="tab" data-bs-target="#findings" type="button" role="tab">
                 Findings
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="endpoints-tab" data-bs-toggle="tab" data-bs-target="#endpoints" type="button" role="tab">
+                Endpoints
             </button>
         </li>
     </ul>
@@ -129,7 +135,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {% for scan in scans %}
+                                {% for scan in scan_history|slice:":5" %}
                                     <tr>
                                         <td>{{ scan.module.name }}</td>
                                         <td>
@@ -150,7 +156,7 @@
                                                 </form>
                                             {% endif %}
                                         </td>
-                                        <td>{{ scan.started_at }}</td>
+                                        <td>{{ scan.started_at|date:"Y-m-d H:i:s" }}</td>
                                         <td>
                                             {% if scan.output %}
                                                 <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#scanModal{{ scan.id }}">
@@ -164,6 +170,13 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                        {% if scan_history.count > 5 %}
+                            <div class="text-end mt-2">
+                                <button class="btn btn-link" onclick="document.getElementById('scans-tab').click()">
+                                    View All Scans
+                                </button>
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -372,6 +385,45 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- Endpoints tab -->
+        <div class="tab-pane fade" id="endpoints" role="tabpanel">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Discovered Endpoints</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Path</th>
+                                    <th>Method</th>
+                                    <th>Status</th>
+                                    <th>Length</th>
+                                    <th>Type</th>
+                                    <th>Discovered</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for endpoint in endpoints %}
+                                <tr>
+                                    <td>{{ endpoint.path }}</td>
+                                    <td><span class="badge bg-info">{{ endpoint.method }}</span></td>
+                                    <td><span class="badge bg-{{ endpoint.status_code|status_color }}">{{ endpoint.status_code }}</span></td>
+                                    <td>{{ endpoint.content_length }}</td>
+                                    <td>{{ endpoint.content_type|default:"-" }}</td>
+                                    <td>{{ endpoint.discovered_at|date:"Y-m-d H:i" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center">No endpoints discovered yet</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

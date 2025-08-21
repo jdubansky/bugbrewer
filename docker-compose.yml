@@ -4,7 +4,9 @@ services:
   web:
     platform: linux/arm64
     build: .
-    command: python3 manage.py runserver 0.0.0.0:8000
+    command: >
+      sh -c "python3 manage.py migrate &&
+             python3 manage.py runserver 0.0.0.0:8000"
     volumes:
       - .:/app
     ports:
@@ -18,10 +20,13 @@ services:
       - celery
 
   redis:
-    image: redis:latest
+    image: redis:7-alpine
     platform: linux/arm64
+    command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
 
   celery:
     platform: linux/arm64
@@ -32,8 +37,11 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - CHROME_BIN=/usr/bin/chrome
       - CHROMEDRIVER_PATH=/usr/bin/chromedriver
-    command: celery -A bugbrewer worker --loglevel=info
+    command: celery -A bugbrewer worker -l INFO
     volumes:
       - .:/app
     depends_on:
       - redis 
+
+volumes:
+  redis_data: 

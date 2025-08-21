@@ -1,4 +1,5 @@
 {% extends 'scanner/base.html' %}
+{% load scanner_extras %}
 
 {% block content %}
 <div class="container mt-4">
@@ -37,6 +38,11 @@
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="findings-tab" data-bs-toggle="tab" data-bs-target="#findings" type="button" role="tab">
                 Findings
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="endpoints-tab" data-bs-toggle="tab" data-bs-target="#endpoints" type="button" role="tab">
+                Endpoints
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -194,6 +200,45 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- Endpoints tab -->
+        <div class="tab-pane fade" id="endpoints" role="tabpanel">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Discovered Endpoints</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Path</th>
+                                    <th>Method</th>
+                                    <th>Status</th>
+                                    <th>Length</th>
+                                    <th>Type</th>
+                                    <th>Discovered</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for endpoint in endpoints %}
+                                <tr>
+                                    <td>{{ endpoint.path }}</td>
+                                    <td><span class="badge bg-info">{{ endpoint.method }}</span></td>
+                                    <td><span class="badge bg-{{ endpoint.status_code|status_color }}">{{ endpoint.status_code }}</span></td>
+                                    <td>{{ endpoint.content_length }}</td>
+                                    <td>{{ endpoint.content_type|default:"-" }}</td>
+                                    <td>{{ endpoint.discovered_at|date:"Y-m-d H:i" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center">No endpoints discovered yet</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -385,6 +430,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 e.preventDefault()
                 modalInstance.show()
             })
+
+            // Add event listener for modal hidden event
+            modal.addEventListener('hidden.bs.modal', function () {
+                // Remove the modal backdrop
+                var backdrop = document.querySelector('.modal-backdrop')
+                if (backdrop) {
+                    backdrop.remove()
+                }
+                // Remove modal-open class from body
+                document.body.classList.remove('modal-open')
+                // Reset body padding
+                document.body.style.paddingRight = ''
+            })
         }
     });
 
@@ -454,23 +512,25 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Handle favorite toggle
-    document.querySelector('.toggle-favorite').addEventListener('click', function() {
-        const model = this.dataset.model;
-        const id = this.dataset.id;
-        const icon = this.querySelector('i');
-        
-        fetch(`/toggle-favorite/${model}/${id}/`, {
-            method: 'POST',
-            headers: {
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                icon.classList.toggle('bi-star');
-                icon.classList.toggle('bi-star-fill');
-            }
+    document.querySelectorAll('.toggle-favorite').forEach(button => {
+        button.addEventListener('click', function() {
+            const model = this.dataset.model;
+            const id = this.dataset.id;
+            
+            fetch(`/toggle-favorite/${model}/${id}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]').value
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const icon = this.querySelector('i');
+                    icon.classList.toggle('bi-star');
+                    icon.classList.toggle('bi-star-fill');
+                }
+            });
         });
     });
 });

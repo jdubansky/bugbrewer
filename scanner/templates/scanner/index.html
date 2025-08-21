@@ -48,11 +48,11 @@
                 <table class="table table-hover">
                     <thead>
                         <tr>
-                            <th>Asset</th>
-                            <th>Subdomains</th>
-                            <th>Findings</th>
-                            <th>Scan</th>
-                            <th>Actions</th>
+                            <th style="width: 40%">Asset</th>
+                            <th style="width: 10%">Subdomains</th>
+                            <th style="width: 10%">Findings</th>
+                            <th style="width: 25%">Scan</th>
+                            <th style="width: 15%">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -69,10 +69,12 @@
                             <td>{{ asset.subdomain_list|length }}</td>
                             <td>{{ asset.findings_count }}</td>
                             <td>
-                                <form method="post" action="{% url 'start-scan' asset.id %}" class="d-inline">
+                                <form method="post" action="{% url 'start-scan' asset.id %}" class="d-flex align-items-center">
                                     {% csrf_token %}
-                                    {{ scan_form.as_p }}
-                                    <button type="submit" class="btn btn-sm btn-primary">Scan</button>
+                                    <div class="d-flex align-items-center">
+                                        {{ scan_form.module }}
+                                        <button type="submit" class="btn btn-sm btn-primary ms-2">Scan</button>
+                                    </div>
                                 </form>
                             </td>
                             <td>

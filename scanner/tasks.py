@@ -1,7 +1,7 @@
 import importlib
 from celery import shared_task
 import subprocess
-from .models import Scan, Module, Finding, Port, Subdomain, IgnoredAsset
+from .models import Scan, Module, Finding, Port, Subdomain, IgnoredAsset, ContinuousScan, Asset
 from django.utils.timezone import now
 import re
 from django.utils import timezone
@@ -37,57 +37,49 @@ def execute_scan(scan_id):
 
 @shared_task(bind=True)
 def run_scan(self, scan_id):
+    scan = Scan.objects.get(id=scan_id)
+    scan.task_id = self.request.id
+    scan.save()
+    
     try:
-        scan = Scan.objects.get(id=scan_id)
-        asset = scan.asset
+        # Check if scan was cancelled before starting
+        scan.refresh_from_db()
+        if scan.status == 'canceled':
+            return
         
-        # Update scan status to running
         scan.status = 'running'
-        scan.output = 'Starting scan...'
+        scan.started_at = timezone.now()
         scan.save()
         
-        # Get the module class
-        module = scan.module
-        if not module:
-            raise ValueError(f"No module specified for scan {scan_id}")
-            
-        # Import and instantiate the module
-        module_path = f"scanner.modules.python_modules.{module.python_module}"
+        # Import and run the module
+        module_path = f"scanner.modules.python_modules.{scan.module.python_module}"
         scanner_module = importlib.import_module(module_path)
         
         # Check if the module has a Scanner class or just a run function
         if hasattr(scanner_module, 'Scanner'):
-            scanner = scanner_module.Scanner(asset)
-            results = scanner.run()
+            scanner = scanner_module.Scanner(scan.asset)
+            output = scanner.run()
         else:
             # Module uses a run function directly
-            results = scanner_module.run(scan)
+            output = scanner_module.run(scan)
         
-        # Ensure results is a dictionary
-        if not isinstance(results, dict):
-            results = {'output': str(results)}
-        
-        # Process the results, filtering out ignored subdomains
-        if 'subdomains' in results and isinstance(results['subdomains'], (list, tuple)):
-            filtered_subdomains = []
-            for subdomain_data in results['subdomains']:
-                if isinstance(subdomain_data, dict):
-                    subdomain_name = subdomain_data.get('name', '')
-                    if not IgnoredAsset.objects.filter(name=subdomain_name).exists():
-                        filtered_subdomains.append(subdomain_data)
-                    else:
-                        scan.output += f"\nSkipping ignored subdomain: {subdomain_name}"
-            results['subdomains'] = filtered_subdomains
-        
-        # Process the filtered results
-        process_scan_results(scan, results)
-        
-    except Exception as e:
-        logger.error(f"Error running scan {scan_id}: {str(e)}")
-        scan.status = 'failed'
-        scan.output = f"Error: {str(e)}"
+        # Check if scan was cancelled during execution
+        scan.refresh_from_db()
+        if scan.status == 'canceled':
+            return
+            
+        scan.status = 'completed'
+        scan.output = output
         scan.completed_at = timezone.now()
         scan.save()
+        
+    except Exception as e:
+        scan.refresh_from_db()
+        if scan.status != 'canceled':  # Only update status if not already canceled
+            scan.status = 'failed'
+            scan.output = str(e)
+            scan.completed_at = timezone.now()
+            scan.save()
         raise
 
 def process_scan_results(scan, results):
@@ -120,13 +112,13 @@ def process_scan_results(scan, results):
         # Process subdomains
         if 'subdomains' in results:
             for subdomain_data in results['subdomains']:
-                Subdomain.objects.create(
-                    asset=scan.asset,
-                    name=subdomain_data.get('name', ''),
-                    ip_address=subdomain_data.get('ip_address', ''),
-                    source=subdomain_data.get('source', ''),
-                    discovered_at=timezone.now()
-                )
+                if isinstance(subdomain_data, dict):
+                    subdomain_name = subdomain_data.get('name', '')
+                    if subdomain_name:  # Only create if we have a name
+                        Subdomain.objects.get_or_create(
+                            asset=scan.asset,
+                            name=subdomain_name
+                        )
         
         # Process ports
         if 'ports' in results:
@@ -179,3 +171,62 @@ def parse_findings(scan):
             existing_sub = Subdomain.objects.filter(asset=asset, name=sub).exists()
             if not existing_sub:
                 Subdomain.objects.create(asset=asset, name=sub)
+
+@shared_task
+def run_continuous_scan():
+    """Task to run continuous scans that are due"""
+    try:
+        # Get all continuous scans that are due
+        due_scans = ContinuousScan.objects.filter(status='running')
+        
+        for continuous_scan in due_scans:
+            if continuous_scan.is_due():
+                logger.info(f"Running continuous scan: {continuous_scan.name}")
+                
+                # Check system resources before starting
+                from .views import check_system_resources
+                can_run, reason = check_system_resources()
+                if not can_run:
+                    logger.warning(f"Cannot run continuous scan {continuous_scan.name}: {reason}")
+                    continue
+                
+                # Get all assets
+                assets = Asset.objects.all()
+                
+                # Run scans for each asset and module combination
+                for asset in assets:
+                    for module in continuous_scan.modules.all():
+                        # Check if a scan for this asset-module combination already exists
+                        existing_scan = Scan.objects.filter(
+                            asset=asset,
+                            module=module,
+                            status__in=['running', 'queued']
+                        ).first()
+                        
+                        if not existing_scan:
+                            scan = Scan.objects.create(
+                                asset=asset,
+                                module=module,
+                                status='queued',
+                                started_at=timezone.now(),
+                                output='Initializing scan...'
+                            )
+                            
+                            try:
+                                # Start the scan task
+                                task = run_scan.delay(scan.id)
+                                scan.task_id = task.id
+                                scan.save()
+                            except Exception as e:
+                                logger.error(f"Error starting scan for {asset.name} with {module.name}: {str(e)}")
+                                scan.status = 'failed'
+                                scan.output = str(e)
+                                scan.completed_at = timezone.now()
+                                scan.save()
+                
+                # Update the next scan time
+                continuous_scan.update_next_scan()
+                
+    except Exception as e:
+        logger.error(f"Error in continuous scan task: {str(e)}")
+        raise

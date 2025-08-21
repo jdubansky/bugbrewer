@@ -17,6 +17,7 @@ import random
 import asyncio
 from playwright.async_api import async_playwright
 from io import BytesIO
+import psutil
 
 async def _take_screenshot_async(url, display=":99"):
     try:
@@ -104,22 +105,51 @@ def check_port(host, port, timeout=2):
     except:
         return None
 
+def check_system_resources():
+    """Check if system has enough resources to continue scanning"""
+    cpu_percent = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory()
+    memory_percent = memory.percent
+    
+    # Resource thresholds
+    MAX_CPU_PERCENT = 80
+    MAX_MEMORY_PERCENT = 80
+    
+    if cpu_percent > MAX_CPU_PERCENT:
+        time.sleep(5)  # Wait for CPU to cool down
+        return False
+    if memory_percent > MAX_MEMORY_PERCENT:
+        time.sleep(5)  # Wait for memory to free up
+        return False
+    
+    return True
+
 def scan_ports(host, ports=[22, 66, 80, 81, 443, 445, 457, 1080, 1100, 
                             1241, 1352, 1433, 1434, 1521, 1944, 2301, 
                             3000, 3128, 3306, 4000, 4001, 4002, 4100, 
                             5000, 5432, 5800, 5801, 5802, 6346, 6347, 
-                            7001, 7002, 8000, 8080, 8443, 8888, 30821], max_workers=10, timeout=2):
+                            7001, 7002, 8000, 8080, 8443, 8888, 30821], max_workers=5, timeout=2):
     """
     Scan multiple ports on a host concurrently.
     Returns list of open ports.
     """
     open_ports = []
+    
+    # Check system resources before starting scan
+    if not check_system_resources():
+        return open_ports
+    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_port = {
             executor.submit(check_port, host, port, timeout): port 
             for port in ports
         }
         for future in as_completed(future_to_port):
+            # Check system resources periodically during scan
+            if not check_system_resources():
+                break
+                
             if future.result():
                 open_ports.append(future.result())
+    
     return sorted(open_ports) if open_ports else []  # Return empty list instead of None 

@@ -1,0 +1,90 @@
+{% extends "scanner/base.html" %}
+{% load static %}
+
+{% block title %}Continuous Scans{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Continuous Scans</h1>
+        <a href="{% url 'continuous-scan-create' %}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Create New Continuous Scan
+        </a>
+    </div>
+
+    {% if continuous_scans %}
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Modules</th>
+                        <th>Assets</th>
+                        <th>Interval</th>
+                        <th>Last Scan</th>
+                        <th>Next Scan</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for scan in continuous_scans %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'continuous-scan-detail' scan.id %}">{{ scan.name }}</a>
+                            </td>
+                            <td>
+                                <span class="badge {% if scan.status == 'running' %}bg-success
+                                                  {% elif scan.status == 'paused' %}bg-warning
+                                                  {% else %}bg-secondary{% endif %}">
+                                    {{ scan.get_status_display }}
+                                </span>
+                            </td>
+                            <td>{{ scan.modules.count }}</td>
+                            <td>{{ scan.assets.count }}</td>
+                            <td>{{ scan.scan_interval }} hours</td>
+                            <td>{{ scan.last_scan|default:"Never" }}</td>
+                            <td>{{ scan.next_scan|default:"Not scheduled" }}</td>
+                            <td>
+                                <div class="btn-group">
+                                    <a href="{% url 'continuous-scan-detail' scan.id %}" class="btn btn-sm btn-info">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="{% url 'continuous-scan-edit' scan.id %}" class="btn btn-sm btn-warning">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    {% if scan.status == 'running' %}
+                                        <form method="post" action="{% url 'continuous-scan-pause' scan.id %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-sm btn-warning">
+                                                <i class="fas fa-pause"></i>
+                                            </button>
+                                        </form>
+                                    {% elif scan.status == 'paused' %}
+                                        <form method="post" action="{% url 'continuous-scan-start' scan.id %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-sm btn-success">
+                                                <i class="fas fa-play"></i>
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                    <form method="post" action="{% url 'continuous-scan-stop' scan.id %}" class="d-inline">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-danger">
+                                            <i class="fas fa-stop"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            No continuous scans found. Create one to get started!
+        </div>
+    {% endif %}
+</div>
+{% endblock %} 

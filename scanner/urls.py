@@ -31,4 +31,11 @@ urlpatterns = [
     path('tags/', tag_list, name='tag-list'),
     path('ignored-assets/', ignored_assets_view, name='ignored_assets'),
     path('ignored-assets/<int:asset_id>/delete/', delete_ignored_asset, name='delete-ignored-asset'),
+    path('continuous-scans/', continuous_scan_list, name='continuous-scan-list'),
+    path('continuous-scans/create/', continuous_scan_create, name='continuous-scan-create'),
+    path('continuous-scans/<int:scan_id>/', continuous_scan_detail, name='continuous-scan-detail'),
+    path('continuous-scans/<int:scan_id>/edit/', continuous_scan_edit, name='continuous-scan-edit'),
+    path('continuous-scans/<int:scan_id>/start/', continuous_scan_start, name='continuous-scan-start'),
+    path('continuous-scans/<int:scan_id>/pause/', continuous_scan_pause, name='continuous-scan-pause'),
+    path('continuous-scans/<int:scan_id>/stop/', continuous_scan_stop, name='continuous-scan-stop'),
 ]
