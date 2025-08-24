@@ -8,6 +8,9 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>Assets</h1>
         <div>
+            <a href="{% url 'running-scans' %}" class="btn btn-warning me-2">
+                <i class="bi bi-play-circle me-1"></i> Running Scans
+            </a>
             <a href="{% url 'add-asset' %}" class="btn btn-primary me-2">Add Asset</a>
             <a href="{% url 'bulk-asset-view' %}" class="btn btn-success">Bulk Add</a>
         </div>

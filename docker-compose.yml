@@ -2,7 +2,6 @@ version: '3.8'
 
 services:
   web:
-    platform: linux/arm64
     build: .
     command: >
       sh -c "python3 manage.py migrate &&
@@ -21,7 +20,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    platform: linux/arm64
     command: redis-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
@@ -29,7 +27,6 @@ services:
       - redis_data:/data
 
   celery:
-    platform: linux/arm64
     build: .
     environment:
       - DJANGO_SETTINGS_MODULE=bugbrewer.settings

@@ -23,6 +23,7 @@ import yaml
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 import psutil
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -746,3 +747,94 @@ def continuous_scan_stop(request, scan_id):
         messages.warning(request, f'Continuous scan {continuous_scan.name} is already stopped.')
     
     return redirect('continuous-scan-detail', scan_id=scan_id)
+
+def running_scans_view(request):
+    """View to display all currently running and queued scans"""
+    # Get all running and queued scans
+    active_scans = Scan.objects.filter(
+        status__in=['running', 'queued']
+    ).select_related('asset', 'module').order_by('-started_at')
+    
+    # Get scan statistics
+    total_running = active_scans.filter(status='running').count()
+    total_queued = active_scans.filter(status='queued').count()
+    total_active = total_running + total_queued
+    
+    # Group scans by status for better organization
+    running_scans = active_scans.filter(status='running')
+    queued_scans = active_scans.filter(status='queued')
+    
+    # Calculate scan durations and extract progress information
+    for scan in running_scans:
+        if scan.started_at:
+            scan.duration = timezone.now() - scan.started_at
+            scan.duration_minutes = int(scan.duration.total_seconds() / 60)
+            scan.duration_hours = int(scan.duration.total_seconds() / 3600)
+            
+            # Format duration display
+            if scan.duration_hours > 0:
+                scan.duration_display = f"{scan.duration_hours}h {scan.duration_minutes % 60}m"
+            else:
+                scan.duration_display = f"{scan.duration_minutes}m"
+        else:
+            scan.duration = None
+            scan.duration_minutes = 0
+            scan.duration_display = "Unknown"
+        
+        # Extract progress information from output
+        if scan.output:
+            # Look for progress indicators like "Processed X/Y subdomains"
+            progress_match = re.search(r'Processed (\d+)/(\d+)', scan.output)
+            if progress_match:
+                scan.progress_current = int(progress_match.group(1))
+                scan.progress_total = int(progress_match.group(2))
+                scan.progress_percentage = int((scan.progress_current / scan.progress_total) * 100)
+            else:
+                scan.progress_current = None
+                scan.progress_total = None
+                scan.progress_percentage = None
+        else:
+            scan.progress_current = None
+            scan.progress_total = None
+            scan.progress_percentage = None
+    
+    context = {
+        'running_scans': running_scans,
+        'queued_scans': queued_scans,
+        'total_running': total_running,
+        'total_queued': total_queued,
+        'total_active': total_active,
+        'page_title': 'Running Scans'
+    }
+    
+    return render(request, 'scanner/running_scans.html', context)
+
+@require_POST
+def cancel_all_scans_view(request):
+    """View to cancel all running and queued scans"""
+    try:
+        # Get all active scans
+        active_scans = Scan.objects.filter(status__in=['running', 'queued'])
+        canceled_count = 0
+        
+        for scan in active_scans:
+            # Try to revoke the Celery task if it exists
+            if scan.task_id:
+                try:
+                    from celery.task.control import revoke
+                    revoke(scan.task_id, terminate=True)
+                except Exception as e:
+                    print(f"Error revoking task {scan.task_id}: {e}")
+            
+            # Mark scan as canceled
+            scan.status = 'canceled'
+            scan.completed_at = timezone.now()
+            scan.save()
+            canceled_count += 1
+        
+        messages.success(request, f'Successfully canceled {canceled_count} scans.')
+        
+    except Exception as e:
+        messages.error(request, f'Error canceling scans: {str(e)}')
+    
+    return redirect('running-scans')

@@ -1,0 +1,302 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Running Scans - {{ page_title }}{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h3 mb-0">
+                    <i class="fas fa-play-circle text-primary me-2"></i>
+                    Running Scans
+                </h1>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'index' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i> Back to Assets
+                    </a>
+                    <button class="btn btn-outline-danger" onclick="cancelAllScans()">
+                        <i class="fas fa-stop-circle me-1"></i> Cancel All
+                    </button>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h4 class="card-title">{{ total_active }}</h4>
+                                    <p class="card-text">Total Active Scans</p>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="fas fa-tasks fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card bg-warning text-dark">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h4 class="card-title">{{ total_running }}</h4>
+                                    <p class="card-text">Currently Running</p>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card bg-info text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h4 class="card-title">{{ total_queued }}</h4>
+                                    <p class="card-text">Queued</p>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="fas fa-clock fa-2x"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Running Scans Section -->
+            {% if running_scans %}
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Currently Running ({{ total_running }})
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Asset</th>
+                                    <th>Module</th>
+                                    <th>Started</th>
+                                    <th>Duration</th>
+                                    <th>Progress</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for scan in running_scans %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'asset-detail' scan.asset.id %}" class="text-decoration-none">
+                                            <strong>{{ scan.asset.name }}</strong>
+                                            <span class="badge bg-secondary ms-1">{{ scan.asset.asset_type }}</span>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ scan.module.name }}</span>
+                                    </td>
+                                    <td>
+                                        {% if scan.started_at %}
+                                            <small>{{ scan.started_at|date:"M j, Y H:i" }}</small>
+                                        {% else %}
+                                            <span class="text-muted">Unknown</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if scan.duration_display %}
+                                            <span class="badge bg-info">
+                                                {{ scan.duration_display }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if scan.progress_percentage %}
+                                            <div class="d-flex align-items-center">
+                                                <div class="progress me-2" style="width: 100px; height: 20px;">
+                                                    <div class="progress-bar" role="progressbar" 
+                                                         style="width: {{ scan.progress_percentage }}%"
+                                                         aria-valuenow="{{ scan.progress_percentage }}" 
+                                                         aria-valuemin="0" aria-valuemax="100">
+                                                        {{ scan.progress_percentage }}%
+                                                    </div>
+                                                </div>
+                                                <small class="text-muted">
+                                                    {{ scan.progress_current }}/{{ scan.progress_total }}
+                                                </small>
+                                            </div>
+                                        {% elif scan.output %}
+                                            <small class="text-muted">{{ scan.output|truncatechars:50 }}</small>
+                                        {% else %}
+                                            <span class="text-muted">No output yet</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" onclick="cancelScan({{ scan.id }})">
+                                            <i class="fas fa-stop me-1"></i> Cancel
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Queued Scans Section -->
+            {% if queued_scans %}
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-clock me-2"></i>
+                        Queued ({{ total_queued }})
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Asset</th>
+                                    <th>Module</th>
+                                    <th>Queued At</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for scan in queued_scans %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'asset-detail' scan.asset.id %}" class="text-decoration-none">
+                                            <strong>{{ scan.asset.name }}</strong>
+                                            <span class="badge bg-secondary ms-1">{{ scan.asset.asset_type }}</span>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">{{ scan.module.name }}</span>
+                                    </td>
+                                    <td>
+                                        {% if scan.started_at %}
+                                            <small>{{ scan.started_at|date:"M j, Y H:i" }}</small>
+                                        {% else %}
+                                            <span class="text-muted">Unknown</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-danger" onclick="cancelScan({{ scan.id }})">
+                                            <i class="fas fa-stop me-1"></i> Cancel
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- No Active Scans Message -->
+            {% if not running_scans and not queued_scans %}
+            <div class="text-center py-5">
+                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                <h4 class="text-muted">No Active Scans</h4>
+                <p class="text-muted">All scans have completed or been canceled.</p>
+                <a href="{% url 'index' %}" class="btn btn-primary">
+                    <i class="fas fa-plus me-1"></i> Start New Scan
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Cancel Scan Modal -->
+<div class="modal fade" id="cancelScanModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Cancel Scan</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to cancel this scan? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">No, Keep Running</button>
+                <button type="button" class="btn btn-danger" id="confirmCancelBtn">Yes, Cancel Scan</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let scanToCancel = null;
+
+function cancelScan(scanId) {
+    scanToCancel = scanId;
+    const modal = new bootstrap.Modal(document.getElementById('cancelScanModal'));
+    modal.show();
+}
+
+function cancelAllScans() {
+    if (confirm('Are you sure you want to cancel ALL active scans? This action cannot be undone.')) {
+        // Send request to cancel all scans
+        fetch('{% url "cancel-all-scans" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json',
+            }
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            }
+        });
+    }
+}
+
+document.getElementById('confirmCancelBtn').addEventListener('click', function() {
+    if (scanToCancel) {
+        // Send request to cancel the specific scan
+        fetch(`/scan/cancel/${scanToCancel}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            }
+        }).then(response => {
+            if (response.ok) {
+                location.reload();
+            }
+        });
+    }
+    
+    // Close modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('cancelScanModal'));
+    modal.hide();
+});
+
+// Auto-refresh every 30 seconds to show updated progress
+setInterval(function() {
+    // Only refresh if there are active scans
+    if ({{ total_active }} > 0) {
+        location.reload();
+    }
+}, 30000);
+</script>
+{% endblock %}

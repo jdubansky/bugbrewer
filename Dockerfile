@@ -32,12 +32,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/chromium-browser /usr/bin/chrome
 
-# Install Go 1.21 for ARM64
-RUN wget https://go.dev/dl/go1.21.5.linux-arm64.tar.gz && \
-    tar -C /usr/local -xzf go1.21.5.linux-arm64.tar.gz && \
-    rm go1.21.5.linux-arm64.tar.gz
+# Install Go 1.21 for x86_64
+RUN wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz && \
+    rm go1.21.5.linux-amd64.tar.gz
 ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
-ENV GOARCH=arm64
+ENV GOARCH=amd64
 ENV GOOS=linux
 
 # Install feroxbuster using pre-built binary and ensure it's in PATH
