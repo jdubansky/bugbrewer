@@ -34,11 +34,6 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="subdomains-tab" data-bs-toggle="tab" data-bs-target="#subdomains" type="button" role="tab">
-                Subdomains
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
             <button class="nav-link" id="findings-tab" data-bs-toggle="tab" data-bs-target="#findings" type="button" role="tab">
                 Findings
             </button>
@@ -54,6 +49,11 @@
     <div class="tab-content mt-3">
         <!-- Overview tab -->
         <div class="tab-pane fade show active" id="overview" role="tabpanel">
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Overview Tab:</strong> This tab contains a comprehensive view of your asset including subdomains with sorting and pagination capabilities.
+            </div>
+            
             <div class="row">
                 <div class="col-md-6">
                     <div class="card mb-4">
@@ -131,6 +131,8 @@
                                     <th>Module</th>
                                     <th>Status</th>
                                     <th>Started</th>
+                                    <th>Duration</th>
+                                    <th>Progress</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -156,7 +158,53 @@
                                                 </form>
                                             {% endif %}
                                         </td>
-                                        <td>{{ scan.started_at|date:"Y-m-d H:i:s" }}</td>
+                                        <td>
+                                            {% if scan.started_at %}
+                                                <small>{{ scan.started_at|date:"M j, H:i" }}</small>
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if scan.started_at %}
+                                                {% if scan.completed_at %}
+                                                    {% with duration=scan.completed_at|timesince:scan.started_at %}
+                                                        <span class="badge bg-success">{{ duration }}</span>
+                                                    {% endwith %}
+                                                {% elif scan.status == 'running' %}
+                                                    {% with duration=scan.started_at|timesince %}
+                                                        <span class="badge bg-warning">{{ duration }}</span>
+                                                    {% endwith %}
+                                                {% elif scan.status == 'queued' %}
+                                                    <span class="badge bg-secondary">Queued</span>
+                                                {% else %}
+                                                    <span class="badge bg-info">{{ scan.status|title }}</span>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if scan.output %}
+                                                {% if "Processed" in scan.output %}
+                                                    {% comment %}Progress detection for processed items{% endcomment %}
+                                                    <div class="d-flex align-items-center">
+                                                        <div class="progress me-2" style="width: 80px; height: 16px;">
+                                                            <div class="progress-bar" role="progressbar" 
+                                                                 style="width: 75%"
+                                                                 aria-valuenow="75" 
+                                                                 aria-valuemin="0" aria-valuemax="100">
+                                                            </div>
+                                                        </div>
+                                                        <small class="text-muted">Processing...</small>
+                                                    </div>
+                                                {% else %}
+                                                    <small class="text-muted">{{ scan.output|truncatechars:30 }}</small>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="text-muted">No output</span>
+                                            {% endif %}
+                                        </td>
                                         <td>
                                             {% if scan.output %}
                                                 <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#scanModal{{ scan.id }}">
@@ -166,7 +214,7 @@
                                         </td>
                                     </tr>
                                 {% empty %}
-                                    <tr><td colspan="4" class="text-center">No scans performed yet.</td></tr>
+                                    <tr><td colspan="6" class="text-center">No scans performed yet.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -180,6 +228,239 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Subdomains Section -->
+            <div class="card mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Subdomains ({{ subdomains.paginator.count }})</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <select name="subdomain_page_size" class="form-select form-select-sm" style="width: auto;" onchange="changeSubdomainPageSize(this.value)">
+                            {% for size in subdomain_page_sizes %}
+                            <option value="{{ size }}" {% if subdomain_page_size == size %}selected{% endif %}>{{ size }} per page</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">
+                            Showing {{ subdomains.start_index }}-{{ subdomains.end_index }} of {{ subdomains.paginator.count }}
+                        </small>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if subdomains %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <a href="?{% if subdomain_params %}{{ subdomain_params.urlencode }}&{% endif %}subdomain_sort=name&subdomain_order={% if subdomain_sort == 'name' and subdomain_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                               class="text-decoration-none text-dark d-flex align-items-center">
+                                                Subdomain
+                                                {% if subdomain_sort == 'name' %}
+                                                    <i class="bi bi-arrow-{% if subdomain_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                                {% endif %}
+                                            </a>
+                                        </th>
+                                        <th>Screenshots</th>
+                                        <th>
+                                            <a href="?{% if subdomain_params %}{{ subdomain_params.urlencode }}&{% endif %}subdomain_sort=ports&subdomain_order={% if subdomain_sort == 'ports' and subdomain_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                               class="text-decoration-none text-dark d-flex align-items-center">
+                                                Ports
+                                                {% if subdomain_sort == 'ports' %}
+                                                    <i class="bi bi-arrow-{% if subdomain_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                                {% endif %}
+                                            </a>
+                                        </th>
+                                        <th>
+                                            <a href="?{% if subdomain_params %}{{ subdomain_params.urlencode }}&{% endif %}subdomain_sort=critical&subdomain_order={% if subdomain_sort == 'critical' and subdomain_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                               class="text-decoration-none text-dark d-flex align-items-center">
+                                                Critical
+                                                {% if subdomain_sort == 'critical' %}
+                                                    <i class="bi bi-arrow-{% if subdomain_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                                {% endif %}
+                                            </a>
+                                        </th>
+                                        <th>
+                                            <a href="?{% if subdomain_params %}{{ subdomain_params.urlencode }}&{% endif %}subdomain_sort=high&subdomain_order={% if subdomain_sort == 'high' and subdomain_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                               class="text-decoration-none text-dark d-flex align-items-center">
+                                                High
+                                                {% if subdomain_sort == 'high' %}
+                                                    <i class="bi bi-arrow-{% if subdomain_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                                {% endif %}
+                                            </a>
+                                        </th>
+                                        <th>Medium</th>
+                                        <th>Low</th>
+                                        <th>Info</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for subdomain in subdomains %}
+                                    <tr>
+                                        <td>
+                                            <a href="{% url 'subdomain-detail' subdomain.id %}" class="text-decoration-none">{{ subdomain.name }}</a>
+                                        </td>
+                                        <td>
+                                            {% if subdomain.screenshots.all %}
+                                                <div class="d-flex flex-wrap gap-1 align-items-center">
+                                                    {% if subdomain.screenshots.count > 3 %}
+                                                        <span class="badge bg-secondary me-1">{{ subdomain.screenshots.count }} total</span>
+                                                    {% endif %}
+                                                    {% for screenshot in subdomain.screenshots.all %}
+                                                        <img src="data:image/png;base64,{{ screenshot.screenshot }}" 
+                                                             class="img-thumbnail screenshot-thumbnail" 
+                                                             style="max-height: 40px; cursor: pointer;"
+                                                             data-bs-toggle="modal" 
+                                                             data-bs-target="#screenshotModal{{ screenshot.id }}"
+                                                             alt="Screenshot of {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol }})"
+                                                             title="{{ subdomain.name }}:{{ screenshot.port.port }}/{{ screenshot.protocol }} - Click to view full size">
+                                                    {% endfor %}
+                                                </div>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if subdomain.ports.all %}
+                                                <span class="badge bg-primary">{{ subdomain.ports.count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if subdomain.critical_count > 0 %}
+                                                <span class="badge bg-danger">{{ subdomain.critical_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if subdomain.high_count > 0 %}
+                                                <span class="badge bg-warning text-dark">{{ subdomain.high_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if subdomain.medium_count > 0 %}
+                                                <span class="badge bg-info">{{ subdomain.medium_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if subdomain.low_count > 0 %}
+                                                <span class="badge bg-success">{{ subdomain.low_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if subdomain.info_count > 0 %}
+                                                <span class="badge bg-secondary">{{ subdomain.info_count }}</span>
+                                            {% else %}
+                                                <span class="text-muted">0</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{% url 'subdomain-detail' subdomain.id %}" class="btn btn-sm btn-outline-primary">View</a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Subdomain Pagination -->
+                        {% if subdomains.paginator.num_pages > 1 %}
+                        <nav aria-label="Subdomain pagination" class="mt-3">
+                            <ul class="pagination justify-content-center pagination-sm">
+                                {% if subdomains.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?subdomain_page=1{% if subdomain_params %}&{{ subdomain_params.urlencode }}{% endif %}" aria-label="First">
+                                        <span aria-hidden="true">&laquo;&laquo;</span>
+                                    </a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?subdomain_page={{ subdomains.previous_page_number }}{% if subdomain_params %}&{{ subdomain_params.urlencode }}{% endif %}" aria-label="Previous">
+                                        <span aria-hidden="true">&laquo;</span>
+                                    </a>
+                                </li>
+                                {% endif %}
+
+                                {% for num in subdomains.paginator.page_range %}
+                                    {% if subdomains.number == num %}
+                                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                                    {% elif num > subdomains.number|add:'-3' and num < subdomains.number|add:'3' %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?subdomain_page={{ num }}{% if subdomain_params %}&{{ subdomain_params.urlencode }}{% endif %}">{{ num }}</a>
+                                    </li>
+                                    {% endif %}
+                                {% endfor %}
+
+                                {% if subdomains.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?subdomain_page={{ subdomains.next_page_number }}{% if subdomain_params %}&{{ subdomain_params.urlencode }}{% endif %}" aria-label="Next">
+                                        <span aria-hidden="true">&raquo;</span>
+                                    </a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?subdomain_page={{ subdomains.paginator.num_pages }}{% if subdomain_params %}&{{ subdomain_params.urlencode }}{% endif %}" aria-label="Last">
+                                        <span aria-hidden="true">&raquo;&raquo;</span>
+                                    </a>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </nav>
+                        {% endif %}
+                    {% else %}
+                        <p class="text-muted text-center mb-0">No subdomains discovered yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Screenshot Modals for Subdomains -->
+            {% for subdomain in subdomains %}
+                {% for screenshot in subdomain.screenshots.all %}
+                <div class="modal fade screenshot-modal" id="screenshotModal{{ screenshot.id }}" 
+                     tabindex="-1" aria-labelledby="screenshotModalLabel{{ screenshot.id }}" 
+                     aria-hidden="true" data-screenshot-id="{{ screenshot.id }}">
+                    <div class="modal-dialog modal-xl">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="screenshotModalLabel{{ screenshot.id }}">
+                                    Screenshot: {{ subdomain.name }}:{{ screenshot.port.port }}/{{ screenshot.protocol }}
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body text-center position-relative">
+                                <img src="data:image/png;base64,{{ screenshot.screenshot }}" 
+                                     class="img-fluid" 
+                                     alt="Screenshot of {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol }})">
+                                
+                                <!-- Navigation Buttons -->
+                                <button type="button" class="btn btn-outline-primary screenshot-nav-btn screenshot-prev-btn" 
+                                        title="Previous Screenshot (←)">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-primary screenshot-nav-btn screenshot-next-btn" 
+                                        title="Next Screenshot (→)">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                                
+                                <!-- Screenshot Counter -->
+                                <div class="screenshot-counter">
+                                    <span class="badge bg-secondary">{{ forloop.counter }}</span> of <span class="badge bg-secondary">{{ subdomain.screenshots.all|length }}</span>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                <a href="{% url 'subdomain-detail' subdomain.id %}" class="btn btn-primary">View Subdomain Details</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% endfor %}
         </div>
 
         <!-- Ports tab -->
@@ -238,102 +519,6 @@
                         <p class="text-muted">No open ports discovered yet.</p>
                     {% endif %}
                 </div>
-            </div>
-        </div>
-
-        <!-- Subdomains tab -->
-        <div class="tab-pane fade" id="subdomains" role="tabpanel">
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Subdomain</th>
-                            <th>Screenshot</th>
-                            <th>Open Ports</th>
-                            <th>Critical</th>
-                            <th>High</th>
-                            <th>Medium</th>
-                            <th>Low</th>
-                            <th>Info</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for subdomain in subdomains %}
-                        <tr>
-                            <td>
-                                <a href="{% url 'subdomain-detail' subdomain.id %}">{{ subdomain.name }}</a>
-                            </td>
-                            <td>
-                                {% if subdomain.screenshots.all %}
-                                    <div class="d-flex flex-wrap gap-1">
-                                        {% for screenshot in subdomain.screenshots.all %}
-                                            <img src="data:image/png;base64,{{ screenshot.screenshot }}" 
-                                                 class="img-thumbnail" 
-                                                 style="max-height: 50px; cursor: pointer;"
-                                                 data-bs-toggle="modal" 
-                                                 data-bs-target="#screenshotModal{{ screenshot.id }}"
-                                                 alt="Screenshot of {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol }})"
-                                                 title="{{ screenshot.port.port }}/{{ screenshot.protocol }}">
-                                        {% endfor %}
-                                    </div>
-                                {% else %}
-                                    <span class="text-muted">No screenshots</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if subdomain.ports.all %}
-                                    <button class="btn btn-sm btn-outline-primary" 
-                                            data-bs-toggle="modal" 
-                                            data-bs-target="#portsModal{{ subdomain.id }}">
-                                        View Ports ({{ subdomain.ports.count }})
-                                    </button>
-                                {% else %}
-                                    <span class="text-muted">No ports</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if subdomain.critical_count > 0 %}
-                                    <span class="badge bg-danger">{{ subdomain.critical_count }}</span>
-                                {% else %}
-                                    <span class="text-muted">0</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if subdomain.high_count > 0 %}
-                                    <span class="badge bg-warning text-dark">{{ subdomain.high_count }}</span>
-                                {% else %}
-                                    <span class="text-muted">0</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if subdomain.medium_count > 0 %}
-                                    <span class="badge bg-info">{{ subdomain.medium_count }}</span>
-                                {% else %}
-                                    <span class="text-muted">0</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if subdomain.low_count > 0 %}
-                                    <span class="badge bg-success">{{ subdomain.low_count }}</span>
-                                {% else %}
-                                    <span class="text-muted">0</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if subdomain.info_count > 0 %}
-                                    <span class="badge bg-secondary">{{ subdomain.info_count }}</span>
-                                {% else %}
-                                    <span class="text-muted">0</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <a href="{% url 'subdomain-detail' subdomain.id %}" class="btn btn-sm btn-primary">View Details</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
             </div>
         </div>
 
@@ -557,70 +742,101 @@
 </div>
 {% endfor %}
 
-{% for subdomain in subdomains %}
-    {% for screenshot in subdomain.screenshots.all %}
-    <!-- Screenshot Modal -->
-    <div class="modal fade" id="screenshotModal{{ screenshot.id }}" tabindex="-1" aria-labelledby="screenshotModalLabel{{ screenshot.id }}" aria-hidden="true">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="screenshotModalLabel{{ screenshot.id }}">
-                        {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol|upper }})
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body text-center">
-                    <img src="data:image/png;base64,{{ screenshot.screenshot }}" 
-                         class="img-fluid" 
-                         alt="Screenshot of {{ subdomain.name }}:{{ screenshot.port.port }} ({{ screenshot.protocol }})">
-                    <div class="mt-3">
-                        <p class="text-muted">
-                            Captured on {{ screenshot.created_at|date:"Y-m-d H:i" }}
-                        </p>
+<!-- Port Modals for Asset Ports -->
+{% for port in asset.ports.all %}
+<div class="modal fade" id="portModal{{ port.id }}" tabindex="-1" aria-labelledby="portModalLabel{{ port.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="portModalLabel{{ port.id }}">Port {{ port.port }}/{{ port.protocol|upper }} Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Port Information</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Port:</strong> {{ port.port }}</li>
+                            <li><strong>Protocol:</strong> {{ port.protocol|upper }}</li>
+                            <li><strong>Service:</strong> {{ port.service|default:"Unknown" }}</li>
+                            <li><strong>Discovered:</strong> {{ port.discovered_at|date:"Y-m-d H:i" }}</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Findings</h6>
+                        {% with port_findings=port.findings.all %}
+                            {% if port_findings %}
+                                <ul class="list-unstyled">
+                                    {% for finding in port_findings %}
+                                    <li>
+                                        <span class="badge {% if finding.severity == 'high' %}bg-danger
+                                                          {% elif finding.severity == 'medium' %}bg-warning text-dark
+                                                          {% elif finding.severity == 'low' %}bg-info text-dark
+                                                          {% else %}bg-secondary{% endif %}">
+                                            {{ finding.severity|title }}
+                                        </span>
+                                        {{ finding.title }}
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <p class="text-muted">No findings for this port.</p>
+                            {% endif %}
+                        {% endwith %}
                     </div>
                 </div>
+                
+                <!-- Scan History -->
+                {% with port_scans=port.scans.all %}
+                {% if port_scans %}
+                <div class="mt-4">
+                    <h6>Scan History</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Module</th>
+                                    <th>Status</th>
+                                    <th>Started</th>
+                                    <th>Output</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for scan in port_scans %}
+                                <tr>
+                                    <td>{{ scan.module.name }}</td>
+                                    <td>
+                                        <span class="badge {% if scan.status == 'completed' %}bg-success
+                                                  {% elif scan.status == 'running' %}bg-primary
+                                                  {% elif scan.status == 'failed' %}bg-danger
+                                                  {% else %}bg-secondary{% endif %}">
+                                            {{ scan.status|title }}
+                                        </span>
+                                    </td>
+                                    <td>{{ scan.started_at|date:"Y-m-d H:i" }}</td>
+                                    <td>
+                                        {% if scan.output %}
+                                            <button class="btn btn-sm btn-info" 
+                                                    data-bs-toggle="modal" 
+                                                    data-bs-target="#scanOutputModal{{ scan.id }}">
+                                                View
+                                            </button>
+                                        {% else %}
+                                            <span class="text-muted">No output</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {% endif %}
+                {% endwith %}
             </div>
         </div>
     </div>
-    {% endfor %}
-
-    {% if subdomain.ports.all %}
-    <!-- Ports Modal -->
-    <div class="modal fade" id="portsModal{{ subdomain.id }}" tabindex="-1" aria-labelledby="portsModalLabel{{ subdomain.id }}" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="portsModalLabel{{ subdomain.id }}">Open Ports - {{ subdomain.name }}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <table class="table table-sm">
-                        <thead>
-                            <tr>
-                                <th>Port</th>
-                                <th>Protocol</th>
-                                <th>Service</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for port in subdomain.ports.all|dictsort:"port" %}
-                            <tr>
-                                <td>{{ port.port }}</td>
-                                <td>
-                                    <span class="badge {% if port.protocol == 'tcp' %}bg-success{% else %}bg-info{% endif %}">
-                                        {{ port.protocol|upper }}
-                                    </span>
-                                </td>
-                                <td>{{ port.service|default:"unknown" }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
+</div>
 {% endfor %}
 
 {% for finding in findings %}
@@ -780,6 +996,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+    
+    // Function to change subdomain page size
+    function changeSubdomainPageSize(pageSize) {
+        const currentUrl = new URL(window.location);
+        currentUrl.searchParams.set('subdomain_page_size', pageSize);
+        currentUrl.searchParams.delete('subdomain_page'); // Reset to first page
+        window.location.href = currentUrl.toString();
+    }
 
     // Handle favorite toggle
     document.querySelector('.toggle-favorite').addEventListener('click', function() {
@@ -801,6 +1025,279 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Function to navigate between screenshots
+    function navigateScreenshot(direction) {
+        console.log('navigateScreenshot called with direction:', direction);
+        
+        // Find the currently visible modal
+        const currentModal = document.querySelector('.screenshot-modal.show');
+        
+        if (!currentModal) {
+            console.log('No current modal found');
+            return;
+        }
+        
+        console.log('Current modal found:', currentModal.id);
+        
+        // Get all screenshot modals
+        const allModals = Array.from(document.querySelectorAll('.screenshot-modal'));
+        const currentIndex = allModals.indexOf(currentModal);
+        
+        let newIndex;
+        if (direction === 'prev') {
+            newIndex = currentIndex - 1;
+            if (newIndex < 0) {
+                newIndex = allModals.length - 1;
+            }
+        } else { // next
+            newIndex = currentIndex + 1;
+            if (newIndex >= allModals.length) {
+                newIndex = 0;
+            }
+        }
+        
+        console.log('New index:', newIndex, 'Total modals:', allModals.length);
+        
+        // Get the new screenshot modal
+        const newModal = allModals[newIndex];
+        if (!newModal) {
+            console.log('New modal not found');
+            return;
+        }
+        
+        // Hide current modal
+        const currentBsModal = bootstrap.Modal.getInstance(currentModal);
+        if (currentBsModal) {
+            currentBsModal.hide();
+        }
+        
+        // Show new modal after a short delay to ensure smooth transition
+        setTimeout(() => {
+            const newBsModal = new bootstrap.Modal(newModal);
+            newBsModal.show();
+        }, 150);
+    }
+    
+    // Function to close modal and return to asset detail page
+    function closeScreenshotModal() {
+        const currentModal = document.querySelector('.screenshot-modal.show');
+        if (currentModal) {
+            const bsModal = bootstrap.Modal.getInstance(currentModal);
+            if (bsModal) {
+                bsModal.hide();
+            }
+        }
+    }
+    
+    // Function to attach event listeners to modal elements
+    function attachModalEventListeners(modal) {
+        const prevBtn = modal.querySelector('.screenshot-prev-btn');
+        const nextBtn = modal.querySelector('.screenshot-next-btn');
+        const closeBtn = modal.querySelector('.btn-close');
+        const closeFooterBtn = modal.querySelector('.btn-secondary[data-bs-dismiss="modal"]');
+        
+        console.log('Attaching event listeners to modal:', modal.id);
+        console.log('Found buttons:', {
+            prev: prevBtn ? 'yes' : 'no',
+            next: nextBtn ? 'yes' : 'no',
+            close: closeBtn ? 'yes' : 'no',
+            closeFooter: closeFooterBtn ? 'yes' : 'no'
+        });
+        
+        if (prevBtn) {
+            console.log('Setting up previous button for modal:', modal.id);
+            // Remove existing listeners to prevent duplicates
+            prevBtn.replaceWith(prevBtn.cloneNode(true));
+            const newPrevBtn = modal.querySelector('.screenshot-prev-btn');
+            newPrevBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Previous button clicked for modal:', modal.id);
+                navigateScreenshot('prev');
+            });
+        }
+        
+        if (nextBtn) {
+            console.log('Setting up next button for modal:', modal.id);
+            // Remove existing listeners to prevent duplicates
+            nextBtn.replaceWith(nextBtn.cloneNode(true));
+            const newNextBtn = modal.querySelector('.screenshot-next-btn');
+            newNextBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Next button clicked for modal:', modal.id);
+                navigateScreenshot('next');
+            });
+        }
+        
+        // Ensure close buttons work properly
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Close button clicked for modal:', modal.id);
+                closeScreenshotModal();
+            });
+        }
+        
+        if (closeFooterBtn) {
+            closeFooterBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Footer close button clicked for modal:', modal.id);
+                closeScreenshotModal();
+            });
+        }
+    }
+    
+    // Keyboard navigation for screenshot modals
+    function handleScreenshotKeyboard(event) {
+        console.log('Keyboard event:', event.key);
+        
+        // Find the currently visible modal
+        const activeModal = document.querySelector('.screenshot-modal.show');
+        
+        if (!activeModal) {
+            console.log('No active modal for keyboard event');
+            return;
+        }
+        
+        console.log('Active modal for keyboard:', activeModal.id);
+        
+        switch(event.key) {
+            case 'ArrowLeft':
+                event.preventDefault();
+                console.log('Left arrow pressed, navigating prev');
+                navigateScreenshot('prev');
+                break;
+            case 'ArrowRight':
+                event.preventDefault();
+                console.log('Right arrow pressed, navigating next');
+                navigateScreenshot('next');
+                break;
+            case 'Escape':
+                // Let Bootstrap handle escape key for closing
+                break;
+        }
+    }
+    
+    // Function to update navigation button states
+    function updateNavigationButtons(modal) {
+        console.log('Updating navigation buttons for modal:', modal.id);
+        
+        const allModals = Array.from(document.querySelectorAll('.screenshot-modal'));
+        const totalScreenshots = allModals.length;
+        const currentIndex = allModals.indexOf(modal);
+        
+        console.log('Current index:', currentIndex, 'Total screenshots:', totalScreenshots);
+        
+        // Update counter
+        const counter = modal.querySelector('.screenshot-counter');
+        if (counter) {
+            counter.innerHTML = `<span class="badge bg-secondary">${currentIndex + 1}</span> of <span class="badge bg-secondary">${totalScreenshots}</span>`;
+        }
+        
+        // Show/hide navigation buttons based on number of screenshots
+        const prevBtn = modal.querySelector('.screenshot-prev-btn');
+        const nextBtn = modal.querySelector('.screenshot-next-btn');
+        
+        if (prevBtn) {
+            prevBtn.style.display = totalScreenshots > 1 ? 'flex' : 'none';
+        }
+        if (nextBtn) {
+            nextBtn.style.display = totalScreenshots > 1 ? 'flex' : 'none';
+        }
+        
+        // Hide counter if only one screenshot
+        if (counter) {
+            counter.style.display = totalScreenshots > 1 ? 'block' : 'none';
+        }
+    }
+    
+    // Set up screenshot navigation after DOM is loaded
+    console.log('Setting up screenshot navigation');
+    
+    // Log all screenshot modals found
+    const allScreenshotModals = document.querySelectorAll('.screenshot-modal');
+    console.log('Found', allScreenshotModals.length, 'screenshot modals:', Array.from(allScreenshotModals).map(m => m.id));
+    
+    // Add event listeners for screenshot modals
+    document.querySelectorAll('.screenshot-modal').forEach(modal => {
+        console.log('Setting up modal:', modal.id);
+        
+        modal.addEventListener('shown.bs.modal', function () {
+            console.log('Modal shown:', this.id);
+            // Add keyboard listener when modal is shown
+            document.addEventListener('keydown', handleScreenshotKeyboard);
+            // Attach event listeners and update navigation
+            attachModalEventListeners(this);
+            updateNavigationButtons(this);
+            
+            // Debug: Check if navigation buttons are visible
+            const prevBtn = this.querySelector('.screenshot-prev-btn');
+            const nextBtn = this.querySelector('.screenshot-next-btn');
+            console.log('Navigation buttons found:', {
+                prev: prevBtn ? 'yes' : 'no',
+                next: nextBtn ? 'yes' : 'no',
+                prevDisplay: prevBtn ? prevBtn.style.display : 'N/A',
+                nextDisplay: nextBtn ? nextBtn.style.display : 'N/A'
+            });
+        });
+        
+        modal.addEventListener('hidden.bs.modal', function () {
+            console.log('Modal hidden:', this.id);
+            // Remove keyboard listener when modal is hidden
+            document.removeEventListener('keydown', handleScreenshotKeyboard);
+        });
+    });
+    
+    // Also add a global keyboard listener for debugging
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            console.log('Global keyboard event:', event.key);
+            // Check if any screenshot modal is visible
+            const visibleModal = document.querySelector('.screenshot-modal.show');
+            if (visibleModal) {
+                console.log('Visible modal found, handling keyboard event');
+                handleScreenshotKeyboard(event);
+            }
+        }
+    });
+    
+    // Test function to verify navigation buttons are working
+    window.testScreenshotNavigation = function() {
+        console.log('Testing screenshot navigation...');
+        const modals = document.querySelectorAll('.screenshot-modal');
+        console.log('Found modals:', modals.length);
+        
+        modals.forEach((modal, index) => {
+            const prevBtn = modal.querySelector('.screenshot-prev-btn');
+            const nextBtn = modal.querySelector('.screenshot-next-btn');
+            console.log(`Modal ${index}:`, {
+                id: modal.id,
+                prevBtn: prevBtn ? 'found' : 'missing',
+                nextBtn: nextBtn ? 'found' : 'missing',
+                prevDisplay: prevBtn ? prevBtn.style.display : 'N/A',
+                nextDisplay: nextBtn ? nextBtn.style.display : 'N/A'
+            });
+            
+            // Test if buttons are actually clickable
+            if (prevBtn) {
+                prevBtn.style.border = '3px solid red';
+                prevBtn.title = 'TEST: Previous button is working';
+            }
+            if (nextBtn) {
+                nextBtn.style.border = '3px solid green';
+                nextBtn.title = 'TEST: Next button is working';
+            }
+        });
+    };
+    
+    // Call test function after a delay to ensure DOM is ready
+    setTimeout(() => {
+        window.testScreenshotNavigation();
+    }, 1000);
 });
 </script>
 
@@ -815,6 +1312,300 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     .modal-xl {
         max-width: 90%;
+    }
+    
+    /* Sortable header styles */
+    .table th a {
+        color: #495057 !important;
+        text-decoration: none;
+        transition: color 0.2s;
+    }
+    
+    .table th a:hover {
+        color: #007bff !important;
+    }
+    
+    .table th a i {
+        font-size: 0.8em;
+        margin-left: 0.25rem;
+    }
+    
+    /* Page size selector styling */
+    .form-select-sm {
+        min-width: 120px;
+    }
+    
+    /* Pagination info styling */
+    .pagination-info {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+    
+    /* Overview tab improvements */
+    .alert-info {
+        border-left: 4px solid #17a2b8;
+        background-color: #f8f9fa;
+        border-color: #bee5eb;
+    }
+    
+    /* Subdomain table improvements */
+    .table-sm th, .table-sm td {
+        padding: 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    .table-sm .badge {
+        font-size: 0.75rem;
+    }
+    
+    /* Compact pagination for subdomains */
+    .pagination-sm .page-link {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+    
+    /* Page size selector improvements */
+    .form-select-sm {
+        min-width: 100px;
+        font-size: 0.875rem;
+    }
+    
+    /* Recent scans table improvements */
+    .table .progress {
+        margin: 0;
+    }
+    
+    .table .badge {
+        font-size: 0.75rem;
+    }
+    
+    .table td {
+        vertical-align: middle;
+    }
+    
+    /* Duration badge styling */
+    .badge.bg-info {
+        background-color: #17a2b8 !important;
+    }
+    
+    .badge.bg-warning {
+        background-color: #ffc107 !important;
+        color: #212529 !important;
+    }
+    
+    /* Progress bar improvements */
+    .progress {
+        background-color: #e9ecef;
+        border-radius: 0.375rem;
+    }
+    
+    .progress-bar {
+        background-color: #007bff;
+        border-radius: 0.375rem;
+    }
+    
+    /* Screenshot thumbnail improvements */
+    .screenshot-thumbnail {
+        transition: transform 0.2s, box-shadow 0.2s;
+        border: 2px solid #dee2e6;
+        max-width: 60px;
+        object-fit: cover;
+    }
+    
+    .screenshot-thumbnail:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        border-color: #007bff;
+        z-index: 10;
+        position: relative;
+    }
+    
+    /* Modal improvements for screenshots */
+    .modal-xl {
+        max-width: 95%;
+    }
+    
+    .modal-body img {
+        max-height: 80vh;
+        object-fit: contain;
+    }
+    
+    /* Ensure modal backdrop doesn't interfere */
+    .screenshot-modal .modal-backdrop {
+        z-index: 1055;
+    }
+    
+    .screenshot-modal .modal {
+        z-index: 1056;
+    }
+    
+    /* Ensure modal content is properly positioned */
+    .screenshot-modal .modal-content {
+        position: relative;
+        z-index: 1057;
+    }
+
+    /* New styles for screenshot navigation */
+    .screenshot-nav-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        background-color: rgba(255, 255, 255, 0.95);
+        border: 2px solid #007bff;
+        padding: 0.5rem;
+        border-radius: 50%;
+        width: 44px;
+        height: 44px;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        z-index: 1056;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        transition: all 0.2s ease;
+        font-size: 1.2rem;
+        color: #007bff;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    .screenshot-nav-btn:hover {
+        background-color: rgba(255, 255, 255, 1);
+        border-color: #007bff;
+        transform: translateY(-50%) scale(1.1);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+
+    .screenshot-nav-btn:active {
+        transform: translateY(-50%) scale(0.95);
+    }
+
+    .screenshot-prev-btn {
+        left: 15px;
+    }
+
+    .screenshot-next-btn {
+        right: 15px;
+    }
+
+    .screenshot-counter {
+        position: absolute;
+        bottom: 15px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        z-index: 10;
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .screenshot-counter .badge {
+        font-size: 0.8rem;
+        margin: 0 0.25rem;
+    }
+
+    /* Responsive adjustments for smaller screens */
+    @media (max-width: 768px) {
+        .screenshot-nav-btn {
+            width: 36px;
+            height: 36px;
+            font-size: 1rem;
+        }
+        
+        .screenshot-prev-btn {
+            left: 10px;
+        }
+        
+        .screenshot-next-btn {
+            right: 10px;
+        }
+        
+        .screenshot-counter {
+            bottom: 10px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+        }
+    }
+
+    /* Hide navigation elements when only one screenshot */
+    .screenshot-modal:only-child .screenshot-nav-btn,
+    .screenshot-modal:only-child .screenshot-counter {
+        display: none !important;
+    }
+    
+    /* Ensure navigation buttons are always visible when multiple screenshots exist */
+    .screenshot-modal .screenshot-nav-btn {
+        display: flex !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+    
+    /* Debug styles - add a border to help identify positioning issues */
+    .screenshot-modal .modal-body {
+        border: 2px solid transparent;
+        position: relative;
+    }
+    
+    .screenshot-modal .modal-body:hover {
+        border-color: rgba(0, 123, 255, 0.3);
+    }
+    
+    /* Additional debugging - make navigation buttons more prominent */
+    .screenshot-modal .screenshot-nav-btn::before {
+        content: '';
+        position: absolute;
+        top: -5px;
+        left: -5px;
+        right: -5px;
+        bottom: -5px;
+        background: rgba(255, 0, 0, 0.1);
+        border-radius: 50%;
+        z-index: -1;
+    }
+    
+    /* Ensure modal backdrop doesn't block interactions */
+    .modal-backdrop {
+        pointer-events: none !important;
+    }
+    
+    .modal-backdrop + .modal {
+        pointer-events: auto !important;
+    }
+    
+    /* Ensure the modal itself doesn't block interactions */
+    .screenshot-modal {
+        pointer-events: auto !important;
+    }
+    
+    .screenshot-modal .modal-content {
+        pointer-events: auto !important;
+    }
+    
+    /* Force navigation buttons to be visible and clickable */
+    .screenshot-modal .screenshot-nav-btn {
+        position: absolute !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        z-index: 9999 !important;
+        pointer-events: auto !important;
+        cursor: pointer !important;
+        background-color: #007bff !important;
+        color: white !important;
+        border: 2px solid white !important;
+        box-shadow: 0 0 10px rgba(0,0,0,0.5) !important;
+    }
+    
+    .screenshot-modal .screenshot-prev-btn {
+        left: 20px !important;
+    }
+    
+    .screenshot-modal .screenshot-next-btn {
+        right: 20px !important;
     }
 </style>
 {% endblock %} 

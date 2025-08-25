@@ -28,17 +28,25 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <input type="text" name="q" class="form-control" placeholder="Search assets..." value="{{ search_query }}">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <div class="form-check">
                         <input type="checkbox" name="favorite" value="true" class="form-check-input" id="favoriteCheck" {% if show_favorites %}checked{% endif %}>
-                        <label class="form-check-label" for="favoriteCheck">Show Favorites Only</label>
+                        <label class="form-check-label" for="favoriteCheck">Favorites Only</label>
                     </div>
+                </div>
+                <div class="col-md-3">
+                    <select name="page_size" class="form-select">
+                        {% for size in page_sizes %}
+                        <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }} per page</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="col-12">
                     <button type="submit" class="btn btn-primary">Apply Filters</button>
+                    <a href="{% url 'index' %}" class="btn btn-outline-secondary">Clear Filters</a>
                 </div>
             </form>
         </div>
@@ -51,10 +59,43 @@
                 <table class="table table-hover">
                     <thead>
                         <tr>
-                            <th style="width: 40%">Asset</th>
-                            <th style="width: 10%">Subdomains</th>
-                            <th style="width: 10%">Findings</th>
-                            <th style="width: 25%">Scan</th>
+                            <th style="width: 35%">
+                                <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=name&order={% if sort_by == 'name' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                   class="text-decoration-none text-dark d-flex align-items-center">
+                                    Asset
+                                    {% if sort_by == 'name' %}
+                                        <i class="bi bi-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th style="width: 10%">
+                                <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=type&order={% if sort_by == 'type' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                   class="text-decoration-none text-dark d-flex align-items-center">
+                                    Type
+                                    {% if sort_by == 'type' %}
+                                        <i class="bi bi-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th style="width: 10%">
+                                <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=subdomains&order={% if sort_by == 'subdomains' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                   class="text-decoration-none text-dark d-flex align-items-center">
+                                    Subdomains
+                                    {% if sort_by == 'subdomains' %}
+                                        <i class="bi bi-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th style="width: 10%">
+                                <a href="?{% if current_params %}{{ current_params.urlencode }}&{% endif %}sort=findings&order={% if sort_by == 'findings' and sort_order == 'asc' %}desc{% else %}asc{% endif %}" 
+                                   class="text-decoration-none text-dark d-flex align-items-center">
+                                    Findings
+                                    {% if sort_by == 'findings' %}
+                                        <i class="bi bi-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} ms-1"></i>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th style="width: 20%">Scan</th>
                             <th style="width: 15%">Actions</th>
                         </tr>
                     </thead>
@@ -68,6 +109,9 @@
                                     <i class="bi bi-star-fill text-warning ms-2"></i>
                                     {% endif %}
                                 </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ asset.get_asset_type_display }}</span>
                             </td>
                             <td>{{ asset.subdomain_list|length }}</td>
                             <td>{{ asset.findings_count }}</td>
@@ -89,7 +133,7 @@
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="5" class="text-center">No assets found.</td>
+                            <td colspan="6" class="text-center">No assets found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -102,12 +146,12 @@
                 <ul class="pagination justify-content-center">
                     {% if assets.has_previous %}
                     <li class="page-item">
-                        <a class="page-link" href="?page=1{% if search_query %}&q={{ search_query }}{% endif %}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if show_favorites %}&favorite=true{% endif %}" aria-label="First">
+                        <a class="page-link" href="?page=1{% if current_params %}&{{ current_params.urlencode }}{% endif %}" aria-label="First">
                             <span aria-hidden="true">&laquo;&laquo;</span>
                         </a>
                     </li>
                     <li class="page-item">
-                        <a class="page-link" href="?page={{ assets.previous_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if show_favorites %}&favorite=true{% endif %}" aria-label="Previous">
+                        <a class="page-link" href="?page={{ assets.previous_page_number }}{% if current_params %}&{{ current_params.urlencode }}{% endif %}" aria-label="Previous">
                             <span aria-hidden="true">&laquo;</span>
                         </a>
                     </li>
@@ -118,19 +162,19 @@
                         <li class="page-item active"><span class="page-link">{{ num }}</span></li>
                         {% elif num > assets.number|add:'-3' and num < assets.number|add:'3' %}
                         <li class="page-item">
-                            <a class="page-link" href="?page={{ num }}{% if search_query %}&q={{ search_query }}{% endif %}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if show_favorites %}&favorite=true{% endif %}">{{ num }}</a>
+                            <a class="page-link" href="?page={{ num }}{% if current_params %}&{{ current_params.urlencode }}{% endif %}">{{ num }}</a>
                         </li>
                         {% endif %}
                     {% endfor %}
 
                     {% if assets.has_next %}
                     <li class="page-item">
-                        <a class="page-link" href="?page={{ assets.next_page_number }}{% if search_query %}&q={{ search_query }}{% endif %}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if show_favorites %}&favorite=true{% endif %}" aria-label="Next">
+                        <a class="page-link" href="?page={{ assets.next_page_number }}{% if current_params %}&{{ current_params.urlencode }}{% endif %}" aria-label="Next">
                             <span aria-hidden="true">&raquo;</span>
                         </a>
                     </li>
                     <li class="page-item">
-                        <a class="page-link" href="?page={{ assets.paginator.num_pages }}{% if search_query %}&q={{ search_query }}{% endif %}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if show_favorites %}&favorite=true{% endif %}" aria-label="Last">
+                        <a class="page-link" href="?page={{ assets.paginator.num_pages }}{% if current_params %}&{{ current_params.urlencode }}{% endif %}" aria-label="Last">
                             <span aria-hidden="true">&raquo;&raquo;</span>
                         </a>
                     </li>
@@ -141,4 +185,44 @@
         </div>
     </div>
 </div>
+
+<style>
+    /* Sortable header styles */
+    .table th a {
+        color: #495057 !important;
+        text-decoration: none;
+        transition: color 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .table th a:hover {
+        color: #007bff !important;
+    }
+    
+    .table th a i {
+        font-size: 0.8em;
+        margin-left: 0.25rem;
+    }
+    
+    /* Page size selector styling */
+    .form-select {
+        min-width: 120px;
+    }
+    
+    /* Filter card improvements */
+    .card-body {
+        padding: 1.5rem;
+    }
+    
+    /* Button spacing */
+    .btn-group .btn {
+        margin-right: 0.25rem;
+    }
+    
+    .btn-group .btn:last-child {
+        margin-right: 0;
+    }
+</style>
 {% endblock %}

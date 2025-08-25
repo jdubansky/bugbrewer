@@ -41,8 +41,21 @@ def index_view(request):
     search_query = request.GET.get('q', '')
     favorite = request.GET.get('favorite', '')
     
-    # Start with all assets, ordered by name
-    assets = Asset.objects.all().order_by('name')
+    # Get sorting parameters
+    sort_by = request.GET.get('sort', 'name')  # Default sort by name
+    sort_order = request.GET.get('order', 'asc')  # Default ascending order
+    
+    # Get pagination parameters
+    page_size = request.GET.get('page_size', '50')  # Default 50 items per page
+    try:
+        page_size = int(page_size)
+        if page_size not in [25, 50, 100, 250]:
+            page_size = 50
+    except ValueError:
+        page_size = 50
+    
+    # Start with all assets
+    assets = Asset.objects.all()
     
     # Apply filters
     if asset_type:
@@ -55,6 +68,36 @@ def index_view(request):
     if favorite == 'true':
         assets = assets.filter(is_favorite=True)
     
+    # Apply sorting
+    if sort_by == 'name':
+        if sort_order == 'desc':
+            assets = assets.order_by('-name')
+        else:
+            assets = assets.order_by('name')
+    elif sort_by == 'type':
+        if sort_order == 'desc':
+            assets = assets.order_by('-asset_type', 'name')
+        else:
+            assets = assets.order_by('asset_type', 'name')
+    elif sort_by == 'created':
+        if sort_order == 'desc':
+            assets = assets.order_by('-created_at')
+        else:
+            assets = assets.order_by('created_at')
+    elif sort_by == 'subdomains':
+        if sort_order == 'desc':
+            assets = assets.annotate(subdomain_count=Count('domain_subdomains')).order_by('-subdomain_count', 'name')
+        else:
+            assets = assets.annotate(subdomain_count=Count('domain_subdomains')).order_by('subdomain_count', 'name')
+    elif sort_by == 'findings':
+        if sort_order == 'desc':
+            assets = assets.annotate(findings_count=Count('finding')).order_by('-findings_count', 'name')
+        else:
+            assets = assets.annotate(findings_count=Count('finding')).order_by('findings_count', 'name')
+    else:
+        # Default sorting by name
+        assets = assets.order_by('name')
+    
     # Get subdomains and findings for each domain
     for asset in assets:
         asset.subdomain_list = asset.get_subdomains()
@@ -66,10 +109,15 @@ def index_view(request):
     for module in available_modules:
         print(f"DEBUG: Available module: {module.name} (enabled: {module.enabled})")
     
-    # Pagination with 200 items per page
-    paginator = Paginator(assets, 250)
+    # Pagination
+    paginator = Paginator(assets, page_size)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
+    
+    # Get current URL parameters for pagination links
+    current_params = request.GET.copy()
+    if 'page' in current_params:
+        del current_params['page']
     
     context = {
         'assets': page_obj,
@@ -77,7 +125,12 @@ def index_view(request):
         'search_query': search_query,
         'selected_type': asset_type,
         'show_favorites': favorite == 'true',
-        'scan_form': ScanForm()  # Add scan form to context
+        'scan_form': ScanForm(),  # Add scan form to context
+        'sort_by': sort_by,
+        'sort_order': sort_order,
+        'page_size': page_size,
+        'current_params': current_params,
+        'page_sizes': [25, 50, 100, 250]
     }
     return render(request, 'scanner/index.html', context)
 
@@ -510,8 +563,51 @@ def add_asset(request):
 def asset_detail(request, asset_id):
     asset = get_object_or_404(Asset, id=asset_id)
     
-    # Get all subdomains for this asset
+    # Get sorting parameters for subdomains
+    subdomain_sort = request.GET.get('subdomain_sort', 'name')
+    subdomain_order = request.GET.get('subdomain_order', 'asc')
+    
+    # Get pagination parameters for subdomains
+    subdomain_page_size = request.GET.get('subdomain_page_size', '25')
+    try:
+        subdomain_page_size = int(subdomain_page_size)
+        if subdomain_page_size not in [10, 25, 50, 100]:
+            subdomain_page_size = 25
+    except ValueError:
+        subdomain_page_size = 25
+    
+    # Get all subdomains for this asset with sorting
     subdomains = asset.domain_subdomains.all()
+    
+    # Apply sorting to subdomains
+    if subdomain_sort == 'name':
+        if subdomain_order == 'desc':
+            subdomains = subdomains.order_by('-name')
+        else:
+            subdomains = subdomains.order_by('name')
+    elif subdomain_sort == 'critical':
+        if subdomain_order == 'desc':
+            subdomains = subdomains.annotate(critical_count=Count('finding', filter=Q(finding__severity='critical'))).order_by('-critical_count', 'name')
+        else:
+            subdomains = subdomains.annotate(critical_count=Count('finding', filter=Q(finding__severity='critical'))).order_by('critical_count', 'name')
+    elif subdomain_sort == 'high':
+        if subdomain_order == 'desc':
+            subdomains = subdomains.annotate(high_count=Count('finding', filter=Q(finding__severity='high'))).order_by('-high_count', 'name')
+        else:
+            subdomains = subdomains.annotate(high_count=Count('finding', filter=Q(finding__severity='high'))).order_by('high_count', 'name')
+    elif subdomain_sort == 'ports':
+        if subdomain_order == 'desc':
+            subdomains = subdomains.annotate(port_count=Count('ports')).order_by('-port_count', 'name')
+        else:
+            subdomains = subdomains.annotate(port_count=Count('ports')).order_by('port_count', 'name')
+    else:
+        # Default sorting by name
+        subdomains = subdomains.order_by('name')
+    
+    # Paginate subdomains
+    subdomain_paginator = Paginator(subdomains, subdomain_page_size)
+    subdomain_page_number = request.GET.get('subdomain_page')
+    subdomain_page_obj = subdomain_paginator.get_page(subdomain_page_number)
     
     # Get all findings for this asset
     findings = asset.finding_set.all()
@@ -539,16 +635,26 @@ def asset_detail(request, asset_id):
     # Create scan form
     scan_form = ScanForm()
     
+    # Get current URL parameters for subdomain pagination links
+    subdomain_params = request.GET.copy()
+    if 'subdomain_page' in subdomain_params:
+        del subdomain_params['subdomain_page']
+    
     context = {
         'asset': asset,
-        'subdomains': subdomains,
+        'subdomains': subdomain_page_obj,
         'findings': findings,
         'scan_history': scan_history,
         'latest_scan': latest_scan,
         'modules': modules,
         'scan_stats': scan_stats,
         'scan_form': scan_form,
-        'endpoints': endpoints
+        'endpoints': endpoints,
+        'subdomain_sort': subdomain_sort,
+        'subdomain_order': subdomain_order,
+        'subdomain_page_size': subdomain_page_size,
+        'subdomain_params': subdomain_params,
+        'subdomain_page_sizes': [10, 25, 50, 100]
     }
     
     return render(request, 'scanner/asset_detail.html', context)
